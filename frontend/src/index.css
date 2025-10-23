@@ -1,0 +1,246 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* MINDBRIDGE Design System - Professional & Magical Dual Themes */
+
+@layer base {
+  :root {
+    /* Base System Colors */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.75rem;
+
+    /* PSYCHOLOGIST THEME - Professional Medical */
+    --psych-primary: 204 100% 40%;        /* Medical Blue */
+    --psych-primary-foreground: 0 0% 100%;
+    --psych-secondary: 200 18% 46%;       /* Cool Gray */
+    --psych-secondary-foreground: 0 0% 100%;
+    --psych-success: 138 76% 32%;         /* Medical Green */
+    --psych-warning: 45 93% 47%;          /* Alert Amber */
+    --psych-danger: 0 84% 60%;            /* Error Red */
+    --psych-background: 210 20% 98%;      /* Soft White */
+    --psych-surface: 0 0% 100%;
+    --psych-muted: 210 40% 96%;
+    --psych-accent: 204 44% 49%;          /* Accent Blue */
+    
+    /* Psychologist Gradients */
+    --psych-gradient-primary: linear-gradient(135deg, hsl(204 100% 40%), hsl(204 100% 50%));
+    --psych-gradient-surface: linear-gradient(180deg, hsl(210 20% 98%), hsl(210 20% 96%));
+    --psych-gradient-data: linear-gradient(135deg, hsl(204 100% 40%), hsl(138 76% 32%));
+    
+    /* CHILD THEME - Magical Intensamente World */
+    --child-joy: 48 100% 67%;             /* Bright Yellow */
+    --child-sadness: 214 100% 59%;        /* Deep Blue */
+    --child-anger: 0 100% 63%;            /* Fire Red */
+    --child-fear: 271 81% 56%;            /* Purple */
+    --child-disgust: 120 100% 25%;        /* Forest Green */
+    --child-background: 220 43% 11%;      /* Dark Space */
+    --child-surface: 217 33% 15%;         /* Card Surface */
+    --child-text: 210 40% 98%;            /* Light Text */
+    --child-accent: 48 100% 67%;          /* Golden Accent */
+    
+    /* Child Magical Gradients */
+    --child-gradient-joy: linear-gradient(135deg, hsl(48 100% 67%), hsl(35 100% 74%));
+    --child-gradient-sadness: linear-gradient(135deg, hsl(214 100% 59%), hsl(227 100% 50%));
+    --child-gradient-anger: linear-gradient(135deg, hsl(0 100% 63%), hsl(14 100% 57%));
+    --child-gradient-fear: linear-gradient(135deg, hsl(271 81% 56%), hsl(259 100% 65%));
+    --child-gradient-disgust: linear-gradient(135deg, hsl(120 100% 25%), hsl(142 69% 58%));
+    --child-gradient-magic: linear-gradient(135deg, hsl(271 81% 56%), hsl(48 100% 67%), hsl(214 100% 59%));
+    
+    /* Biometric & Data Visualization Colors */
+    --heart-rate: 0 100% 63%;             /* Red for heart */
+    --stress-low: 138 76% 32%;            /* Green */
+    --stress-medium: 45 93% 47%;          /* Yellow */
+    --stress-high: 0 84% 60%;             /* Red */
+    --emotion-calm: 214 100% 59%;         /* Blue */
+    --emotion-excited: 48 100% 67%;       /* Yellow */
+    --emotion-upset: 0 100% 63%;          /* Red */
+    
+    /* Animation Variables */
+    --animation-fast: 0.15s ease-out;
+    --animation-normal: 0.3s ease-out;
+    --animation-slow: 0.6s ease-out;
+    --bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    --smooth: cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* Shadows & Effects */
+    --shadow-soft: 0 2px 8px -2px hsl(220 43% 11% / 0.1);
+    --shadow-medium: 0 4px 16px -4px hsl(220 43% 11% / 0.15);
+    --shadow-strong: 0 8px 32px -8px hsl(220 43% 11% / 0.25);
+    --shadow-glow: 0 0 20px hsl(48 100% 67% / 0.3);
+    --shadow-magic: 0 0 30px hsl(271 81% 56% / 0.4);
+    
+    /* Glass Effects */
+    --glass-psych: rgba(255, 255, 255, 0.8);
+    --glass-child: rgba(255, 255, 255, 0.1);
+    --backdrop-blur: blur(12px);
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
+  
+  /* Theme Classes */
+  .psychologist-theme {
+    --primary: var(--psych-primary);
+    --primary-foreground: var(--psych-primary-foreground);
+    --background: var(--psych-background);
+    --surface: var(--psych-surface);
+    color-scheme: light;
+  }
+  
+  .child-theme {
+    --primary: var(--child-joy);
+    --primary-foreground: var(--child-background);
+    --background: var(--child-background);
+    --surface: var(--child-surface);
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  
+  .child-theme body {
+    font-family: 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+}
+
+@layer components {
+  /* Psychologist Components */
+  .psych-card {
+    @apply bg-white/80 backdrop-blur-md border border-white/20 rounded-xl shadow-soft;
+  }
+  
+  .psych-button-primary {
+    @apply bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-all duration-300 hover:shadow-medium hover:scale-105;
+  }
+  
+  .psych-button-secondary {
+    @apply bg-white/80 text-blue-700 border border-blue-200 px-6 py-3 rounded-lg font-medium transition-all duration-300 hover:bg-blue-50;
+  }
+  
+  /* Child Magical Components */
+  .child-card {
+    @apply bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl;
+  }
+  
+  .child-button-joy {
+    @apply bg-gradient-to-r from-yellow-400 to-orange-400 text-yellow-900 px-8 py-4 rounded-full font-bold text-lg transition-all duration-300 hover:scale-110 hover:shadow-glow;
+  }
+  
+  .child-button-sadness {
+    @apply bg-gradient-to-r from-blue-500 to-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg transition-all duration-300 hover:scale-110;
+  }
+  
+  /* Animations */
+  .float-animation {
+    animation: float 3s ease-in-out infinite;
+  }
+  
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  .magical-shimmer {
+    background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.5) 50%, transparent 70%);
+    background-size: 200% 200%;
+    animation: shimmer 2s infinite;
+  }
+  
+  /* Biometric Indicators */
+  .heart-beat {
+    animation: heartbeat 1s ease-in-out infinite;
+  }
+  
+  .stress-indicator-low {
+    @apply bg-green-500 shadow-lg shadow-green-500/30;
+  }
+  
+  .stress-indicator-medium {
+    @apply bg-yellow-500 shadow-lg shadow-yellow-500/30;
+  }
+  
+  .stress-indicator-high {
+    @apply bg-red-500 shadow-lg shadow-red-500/30;
+    animation: pulse 1s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  /* Custom Shadow Utilities */
+  .shadow-soft {
+    box-shadow: 0 2px 8px -2px hsl(220 43% 11% / 0.1);
+  }
+  
+  .shadow-medium {
+    box-shadow: 0 4px 16px -4px hsl(220 43% 11% / 0.15);
+  }
+  
+  .shadow-strong {
+    box-shadow: 0 8px 32px -8px hsl(220 43% 11% / 0.25);
+  }
+  
+  .shadow-glow {
+    box-shadow: 0 0 20px hsl(48 100% 67% / 0.3);
+  }
+  
+  .shadow-magic {
+    box-shadow: 0 0 30px hsl(271 81% 56% / 0.4);
+  }
+  
+  /* Custom Animations */
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px hsl(48 100% 67% / 0.3); }
+    50% { box-shadow: 0 0 30px hsl(48 100% 67% / 0.6); }
+  }
+  
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  
+  @keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+  }
+  
+  /* Glassmorphism utilities */
+  .glass-psych {
+    background: var(--glass-psych);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+  }
+  
+  .glass-child {
+    background: var(--glass-child);
+    backdrop-filter: var(--backdrop-blur);
+    -webkit-backdrop-filter: var(--backdrop-blur);
+  }
+}

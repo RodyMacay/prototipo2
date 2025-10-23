@@ -1,0 +1,12 @@
+- [x] Remove lovable-tagger from package.json devDependencies
+- [x] Update vite.config.ts to remove lovable-tagger import and usage
+- [x] Update index.html to remove lovable.dev image references in meta tags
+- [x] Run npm install to update dependencies and remove node_modules
+- [x] Test that the app builds and runs correctly
+- [ ] Replace Chart.js with D3.js for all charts
+  - [ ] Update package.json: remove chart.js, react-chartjs-2; add d3, @types/d3
+  - [ ] Create reusable D3 chart components (LineChart, BarChart, DoughnutChart, ScatterChart)
+  - [ ] Update Dashboard.tsx to use D3 components
+  - [ ] Update AnalysisTEA.tsx to use D3 components
+  - [ ] Update BiometricView.tsx to use D3 components
+  - [ ] Test all charts work correctly
