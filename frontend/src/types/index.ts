@@ -24,6 +24,7 @@ export interface Psychologist extends User {
 export interface Patient extends User {
   role: 'patient';
   age: number;
+  childProfileId?: string;
   sex?: string;
   date_of_birth?: Date;
   address?: string;
@@ -67,7 +68,17 @@ export interface AvatarSettings {
   accessories: string[];
 }
 
-export type EmotionType = 'joy' | 'sadness' | 'anger' | 'fear' | 'disgust' | 'neutral';
+export type EmotionType =
+  | 'joy'
+  | 'sadness'
+  | 'anger'
+  | 'fear'
+  | 'disgust'
+  | 'neutral'
+  | 'happy'
+  | 'sad'
+  | 'angry'
+  | 'surprise';
 
 export interface EmotionRecord {
   emotion: EmotionType;
@@ -77,12 +88,31 @@ export interface EmotionRecord {
   context?: string;
 }
 
+export interface MicroexpressionDetection {
+  face_id: number;
+  box: number[];
+  emotion: EmotionType | string;
+  confidence: number;
+  scores: number[];
+}
+
+export interface MicroexpressionFrameData {
+  detections: MicroexpressionDetection[];
+  face_count: number;
+  dominant_emotion: EmotionType | string;
+  dominant_confidence: number;
+}
+
 export interface BiometricData {
-  heartRate: number;
-  stressLevel: 'low' | 'medium' | 'high';
-  skinTemperature: number;
-  activity: 'resting' | 'active' | 'excited' | 'agitated';
+  heartRate?: number;
+  stressLevel?: 'low' | 'medium' | 'high';
+  skinTemperature?: number;
+  activity?: 'resting' | 'active' | 'excited' | 'agitated';
+  faceCount?: number;
+  dominantEmotion?: EmotionType | string;
+  dominantConfidence?: number;
   timestamp: Date;
+  microexpression_data?: MicroexpressionFrameData;
 }
 
 export interface TherapySession {
@@ -198,7 +228,13 @@ export interface ApiResponse<T = unknown> {
 export interface BiometricAlert {
   id: string;
   childId: string;
-  type: 'high_stress' | 'rapid_heartrate' | 'emotional_distress' | 'inactivity';
+  type:
+    | 'high_stress'
+    | 'rapid_heartrate'
+    | 'emotional_distress'
+    | 'inactivity'
+    | 'microexpression_anomaly'
+    | string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   message: string;
   timestamp: Date;

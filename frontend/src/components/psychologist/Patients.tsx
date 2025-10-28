@@ -19,10 +19,12 @@ export const PatientsView: React.FC = () => {
   const { patients, fetchPatients, addPatient, loading } = usePatientStore();
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showNewPatientForm, setShowNewPatientForm] = useState(false);
-  const [newPatientData, setNewPatientData] = useState<Partial<NewPatientData>>({});
+  const [newPatientData, setNewPatientData] = useState<Partial<NewPatientData>>({ diagnosis: [] });
   const [error, setError] = useState<string | null>(null);
   const [ageMessage, setAgeMessage] = useState('');
   const [dateInput, setDateInput] = useState('');
+  const [diagnosisInput, setDiagnosisInput] = useState('');
+  const [preferencesInput, setPreferencesInput] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -31,23 +33,68 @@ export const PatientsView: React.FC = () => {
 
   const handleRegisterPatient = async () => {
     setError(null);
-    if (!newPatientData.name || !newPatientData.email || !newPatientData.password || !newPatientData.age || !newPatientData.sex || !newPatientData.date_of_birth || !newPatientData.guardian_name || !newPatientData.guardian_phone || !newPatientData.asd_level || !newPatientData.guardian_email) {
+
+    if (
+      !newPatientData.name ||
+      !newPatientData.email ||
+      !newPatientData.password ||
+      !newPatientData.sex ||
+      !newPatientData.date_of_birth ||
+      !newPatientData.guardian_name ||
+      !newPatientData.guardian_phone ||
+      !newPatientData.asd_level ||
+      !newPatientData.guardian_email ||
+      newPatientData.age === undefined
+    ) {
       setError('Por favor, complete todos los campos requeridos.');
       return;
     }
 
-    const patientDataWithFile = {
-      ...newPatientData,
-      clinical_history_file: selectedFile || undefined,
+    const diagnosisList =
+      newPatientData.diagnosis && newPatientData.diagnosis.length > 0
+        ? newPatientData.diagnosis
+        : diagnosisInput
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean);
+
+    let preferencesData: Record<string, unknown> | undefined;
+    if (preferencesInput.trim()) {
+      try {
+        preferencesData = JSON.parse(preferencesInput);
+      } catch {
+        setError('Las preferencias deben ser un JSON válido.');
+        return;
+      }
+    }
+
+    const patientDataWithFile: NewPatientData = {
+      name: newPatientData.name,
+      email: newPatientData.email,
+      password: newPatientData.password,
+      age: newPatientData.age,
+      sex: newPatientData.sex,
+      date_of_birth: newPatientData.date_of_birth,
+      address: newPatientData.address,
+      guardian_name: newPatientData.guardian_name,
+      guardian_phone: newPatientData.guardian_phone,
+      asd_level: newPatientData.asd_level,
+      diagnosis: diagnosisList,
+      guardian_email: newPatientData.guardian_email,
+      parent_email: newPatientData.guardian_email,
+      preferences: preferencesData ?? newPatientData.preferences ?? {},
+      clinical_history_file: selectedFile ? selectedFile.name : undefined,
     };
 
-    const success = await addPatient(patientDataWithFile as NewPatientData);
+    const success = await addPatient(patientDataWithFile);
 
     if (success) {
       setShowNewPatientForm(false);
-      setNewPatientData({});
+      setNewPatientData({ diagnosis: [] });
       setAgeMessage('');
       setDateInput('');
+      setDiagnosisInput('');
+      setPreferencesInput('');
       setSelectedFile(null);
     } else {
       setError('Hubo un error al registrar el paciente. Verifique los datos e intente de nuevo.');
@@ -57,6 +104,15 @@ export const PatientsView: React.FC = () => {
   const handleNameInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.toUpperCase().replace(/[^A-Z\s]/g, '');
     setNewPatientData({ ...newPatientData, name: value });
+  };
+
+  const handleDiagnosisChange = (value: string) => {
+    setDiagnosisInput(value);
+    const parsedDiagnosis = value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setNewPatientData(prev => ({ ...prev, diagnosis: parsedDiagnosis }));
   };
 
   const formatDateInput = (value: string) => {
@@ -126,34 +182,46 @@ export const PatientsView: React.FC = () => {
   const handleDateChange = (value: string) => {
     const formatted = formatDateInput(value);
     setDateInput(formatted);
-    setNewPatientData(prev => ({ ...prev, date_of_birth: formatted.length === 10 && validateDate(formatted) ? new Date(formatted.split('/').reverse().join('-')) : undefined }));
 
-    // Clear previous error
+    const isComplete = formatted.length === 10 && validateDate(formatted);
+    let parsedDate: Date | undefined;
+    let computedAge: number | undefined;
+
+    if (isComplete) {
+      parsedDate = new Date(formatted.split('/').reverse().join('-'));
+      const age = calculateAge(formatted);
+      if (age !== null) {
+        computedAge = age;
+      }
+    }
+
+    setNewPatientData(prev => ({
+      ...prev,
+      date_of_birth: parsedDate,
+      age: computedAge,
+    }));
+
     if (error) {
       setError(null);
     }
 
-    // Calculate age and validate
-    if (formatted.length === 10) {
-      if (validateDate(formatted)) {
-        const age = calculateAge(formatted);
-        if (age !== null) {
-          if (age >= 3 && age <= 18) {
-            setAgeMessage(`Edad: ${age} años ✓`);
-            setError(null);
-          } else {
-            setAgeMessage('');
-            setError('La edad debe estar entre 3 y 18 años');
-          }
+    if (isComplete) {
+      if (computedAge !== undefined) {
+        if (computedAge >= 3 && computedAge <= 18) {
+          setAgeMessage('Edad: ' + computedAge + ' años ✔');
+        } else {
+          setAgeMessage('');
+          setError('La edad debe estar entre 3 y 18 años');
         }
       } else {
         setAgeMessage('');
-        setError('Fecha inválida');
+        setError('No se pudo calcular la edad');
       }
     } else {
       setAgeMessage('');
     }
   };
+
 
   if (selectedPatient) {
     return <PatientDetail patient={selectedPatient} onBack={() => setSelectedPatient(null)} />;
@@ -238,6 +306,18 @@ export const PatientsView: React.FC = () => {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="diagnosis">Diagnósticos (separados por coma)</Label>
+                <textarea
+                  id="diagnosis"
+                  className="w-full h-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  value={diagnosisInput}
+                  onChange={(e) => handleDiagnosisChange(e.target.value)}
+                  placeholder="Ej: TEA Nivel 1, Ansiedad social"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="email">Correo electrónico del paciente</Label>
@@ -253,6 +333,16 @@ export const PatientsView: React.FC = () => {
               <Label htmlFor="guardian_email">Correo electrónico del tutor</Label>
               <Input id="guardian_email" type="email" value={newPatientData.guardian_email || ''} onChange={(e) => setNewPatientData({...newPatientData, guardian_email: e.target.value})} placeholder="tutor@email.com" />
             </div>
+            <div>
+              <Label htmlFor="preferences">Preferencias del paciente (JSON opcional)</Label>
+              <textarea
+                id="preferences"
+                className="w-full h-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                value={preferencesInput}
+                onChange={(e) => setPreferencesInput(e.target.value)}
+                placeholder={`Ej: {"sensory":{"sound":"alto","light":"medio"}}`}
+              />
+              <p className="text-xs text-gray-500 mt-1">Proporcione un JSON válido para almacenar preferencias personalizadas.</p>
             </div>
 
             <div>

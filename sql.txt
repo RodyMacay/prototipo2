@@ -1,0 +1,11 @@
+-- Permitir todas las operaciones si RLS está activado
+CREATE POLICY "Allow all operations"
+ON psychologists
+FOR ALL
+USING (true)
+WITH CHECK (true);
+
+
+comando run 
+uvicorn main:app --reload
+uvicorn main:app --reload --log-level debug

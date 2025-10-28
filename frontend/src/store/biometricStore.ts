@@ -1,188 +1,173 @@
 import { create } from 'zustand';
-import { BiometricData, BiometricAlert, MockBiometricReading } from '@/types';
-import { SupabaseService } from '@/services/supabaseService';
+import api from '@/services/api';
+import {
+  BiometricAlert,
+  BiometricData,
+  EmotionRecord,
+  MicroexpressionFrameData,
+} from '@/types';
 
 interface BiometricState {
   realTimeData: BiometricData | null;
   historicalData: BiometricData[];
   alerts: BiometricAlert[];
+  emotionHistory: EmotionRecord[];
   isMonitoring: boolean;
-  connectedDevices: string[];
-  
-  // Actions
-  startMonitoring: (childId: string) => void;
+  loading: boolean;
+
+  startMonitoring: (childId: string) => Promise<void>;
   stopMonitoring: () => void;
-  addBiometricReading: (data: BiometricData) => void;
-  addAlert: (alert: BiometricAlert) => void;
-  resolveAlert: (alertId: string) => void;
-  clearAlerts: () => void;
-  generateMockData: () => void;
+  resolveAlert: (alertId: string) => Promise<void>;
+  ingestRealtimeFrame: (frame: BiometricData) => void;
 }
 
-// Mock data generator for demonstration
-const generateMockBiometricData = (childId: string): BiometricData => {
-  const baseHeartRate = 80 + Math.random() * 20; // 80-100 BPM
-  const stressLevels = ['low', 'medium', 'high'] as const;
-  const activities = ['resting', 'active', 'excited', 'agitated'] as const;
-  
-  return {
-    heartRate: Math.round(baseHeartRate + (Math.random() - 0.5) * 10),
-    stressLevel: stressLevels[Math.floor(Math.random() * stressLevels.length)],
-    skinTemperature: 36.5 + (Math.random() - 0.5) * 1,
-    activity: activities[Math.floor(Math.random() * activities.length)],
-    timestamp: new Date()
-  };
-};
+interface BackendBiometricData {
+  id: string;
+  child_id: string;
+  timestamp: string;
+  heart_rate?: number | null;
+  stress_level?: string | null;
+  skin_temperature?: number | null;
+  activity?: string | null;
+  face_count?: number | null;
+  dominant_emotion?: string | null;
+  dominant_confidence?: number | null;
+  microexpression_data?: MicroexpressionFrameData | null;
+}
 
-const generateMockAlert = (childId: string): BiometricAlert => {
-  const types = ['high_stress', 'rapid_heartrate', 'emotional_distress', 'inactivity'] as const;
-  const severities = ['low', 'medium', 'high', 'critical'] as const;
-  const type = types[Math.floor(Math.random() * types.length)];
-  
-  const messages = {
-    high_stress: 'Nivel de estrés elevado detectado',
-    rapid_heartrate: 'Frecuencia cardíaca por encima del rango normal',
-    emotional_distress: 'Indicadores de malestar emocional',
-    inactivity: 'Período prolongado de inactividad detectado'
-  };
-  
-  return {
-    id: `alert-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    childId,
-    type,
-    severity: severities[Math.floor(Math.random() * severities.length)],
-    message: messages[type],
-    timestamp: new Date(),
-    resolved: false
-  };
-};
+interface BackendBiometricAlert {
+  id: string;
+  child_id: string;
+  type: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  timestamp: string;
+  resolved: boolean;
+  action_taken?: string | null;
+}
+
+interface BackendEmotionRecord {
+  id: string;
+  child_id: string;
+  emotion: string;
+  intensity: number;
+  timestamp: string;
+  triggers?: string[] | null;
+  context?: string | null;
+}
 
 export const useBiometricStore = create<BiometricState>((set, get) => ({
   realTimeData: null,
   historicalData: [],
   alerts: [],
+  emotionHistory: [],
   isMonitoring: false,
-  connectedDevices: [],
+  loading: false,
 
   startMonitoring: async (childId: string) => {
-    set({ isMonitoring: true, connectedDevices: ['Apple Watch Series 9', 'Fitbit Sense 2'] });
-    
-    // Load historical data from Supabase
+    if (!childId) {
+      console.warn('startMonitoring called without childId');
+      return;
+    }
+
+    set({ isMonitoring: true, loading: true });
+
     try {
-      const historicalData = await SupabaseService.getBiometricHistory(childId, 100);
-      const alerts = await SupabaseService.getAlerts(childId);
-      const latestReading = await SupabaseService.getLatestBiometricReading(childId);
-      
-      set({ 
-        historicalData, 
-        alerts: alerts.filter(a => !a.resolved), 
-        realTimeData: latestReading 
+      const [history, alerts, emotions] = await Promise.all([
+        api.get<BackendBiometricData[]>(
+          `/biometric-data/history?limit=100&child_id=${childId}`
+        ),
+        api.get<BackendBiometricAlert[]>(
+          `/alerts?child_id=${childId}`
+        ),
+        api.get<BackendEmotionRecord[]>(
+          `/emotion-records/history?limit=50&child_id=${childId}`
+        ),
+      ]);
+
+      const historicalData: BiometricData[] = (history ?? []).map((item) => ({
+        timestamp: new Date(item.timestamp),
+        heartRate: item.heart_rate ?? undefined,
+        stressLevel: (item.stress_level as BiometricData['stressLevel']) ?? undefined,
+        skinTemperature: item.skin_temperature ?? undefined,
+        activity: (item.activity as BiometricData['activity']) ?? undefined,
+        faceCount: item.face_count ?? undefined,
+        dominantEmotion: item.dominant_emotion ?? undefined,
+        dominantConfidence: item.dominant_confidence ?? undefined,
+        microexpression_data: item.microexpression_data ?? undefined,
+      }));
+
+      const realTimeData = historicalData.length > 0 ? historicalData[0] : null;
+
+      const mappedAlerts: BiometricAlert[] = (alerts ?? []).map((alert) => ({
+        id: alert.id,
+        childId: alert.child_id,
+        type: alert.type as BiometricAlert['type'],
+        severity: alert.severity,
+        message: alert.message,
+        timestamp: new Date(alert.timestamp),
+        resolved: alert.resolved,
+        actionTaken: alert.action_taken ?? undefined,
+      }));
+
+      const emotionHistory: EmotionRecord[] = (emotions ?? []).map((record) => ({
+        emotion: record.emotion as EmotionRecord['emotion'],
+        intensity: record.intensity,
+        timestamp: new Date(record.timestamp),
+        triggers: record.triggers ?? undefined,
+        context: record.context ?? undefined,
+      }));
+
+      set({
+        historicalData,
+        realTimeData,
+        alerts: mappedAlerts,
+        emotionHistory,
+        loading: false,
       });
     } catch (error) {
-      console.error('Error loading biometric data:', error);
+      console.error('Error fetching biometric information:', error);
+      set({
+        historicalData: [],
+        realTimeData: null,
+        alerts: [],
+        emotionHistory: [],
+        isMonitoring: false,
+        loading: false,
+      });
     }
-    
-    // Set up real-time subscription
-    const subscription = SupabaseService.subscribeToBiometricData(childId, (data) => {
-      set(state => ({
-        realTimeData: data,
-        historicalData: [...state.historicalData.slice(-99), data]
-      }));
-    });
-    
-    // Set up alert subscription
-    const alertSubscription = SupabaseService.subscribeToAlerts(childId, (alert) => {
-      set(state => ({
-        alerts: [...state.alerts, alert]
-      }));
-    });
-    
-    // Simulate real-time data generation for demo
-    const interval = setInterval(async () => {
-      const mockData = generateMockBiometricData(childId);
-      
-      try {
-        await SupabaseService.saveBiometricReading(childId, mockData);
-        
-        // Generate alerts randomly (5% chance)
-        if (Math.random() < 0.05) {
-          const alert = generateMockAlert(childId);
-          await SupabaseService.saveAlert(alert);
-        }
-      } catch (error) {
-        console.error('Error saving biometric data:', error);
-      }
-    }, 5000); // Update every 5 seconds
-    
-    // Store subscriptions and interval for cleanup
-    (window as any).biometricSubscription = subscription;
-    (window as any).alertSubscription = alertSubscription;
-    (window as any).biometricInterval = interval;
   },
 
   stopMonitoring: () => {
-    set({ isMonitoring: false, realTimeData: null });
-    
-    // Clean up subscriptions and intervals
-    if ((window as any).biometricSubscription) {
-      (window as any).biometricSubscription.unsubscribe();
-      delete (window as any).biometricSubscription;
-    }
-    
-    if ((window as any).alertSubscription) {
-      (window as any).alertSubscription.unsubscribe();
-      delete (window as any).alertSubscription;
-    }
-    
-    if ((window as any).biometricInterval) {
-      clearInterval((window as any).biometricInterval);
-      delete (window as any).biometricInterval;
-    }
-  },
-
-  addBiometricReading: (data: BiometricData) => {
-    set(state => ({
-      realTimeData: data,
-      historicalData: [...state.historicalData.slice(-99), data]
-    }));
-  },
-
-  addAlert: (alert: BiometricAlert) => {
-    set(state => ({
-      alerts: [...state.alerts, alert]
-    }));
+    set({
+      isMonitoring: false,
+      realTimeData: null,
+      loading: false,
+    });
   },
 
   resolveAlert: async (alertId: string) => {
     try {
-      await SupabaseService.resolveAlert(alertId);
-      set(state => ({
-        alerts: state.alerts.map(alert =>
+      await api.put(`/alerts/${alertId}/resolve`, {});
+
+      set((state) => ({
+        alerts: state.alerts.map((alert) =>
           alert.id === alertId ? { ...alert, resolved: true } : alert
-        )
+        ),
       }));
     } catch (error) {
       console.error('Error resolving alert:', error);
     }
   },
 
-  clearAlerts: () => {
-    set({ alerts: [] });
+  ingestRealtimeFrame: (frame: BiometricData) => {
+    set((state) => {
+      const updatedHistory = [frame, ...state.historicalData].slice(0, 240);
+      return {
+        realTimeData: frame,
+        historicalData: updatedHistory,
+        isMonitoring: true,
+      };
+    });
   },
-
-  generateMockData: () => {
-    const historicalData: BiometricData[] = [];
-    const now = new Date();
-    
-    // Generate last 24 hours of data
-    for (let i = 24 * 60; i > 0; i -= 5) { // Every 5 minutes
-      const timestamp = new Date(now.getTime() - i * 60 * 1000);
-      historicalData.push({
-        ...generateMockBiometricData('demo-child'),
-        timestamp
-      });
-    }
-    
-    set({ historicalData });
-  }
 }));

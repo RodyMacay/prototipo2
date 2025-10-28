@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 
 # Auth models
@@ -29,6 +29,8 @@ class UserRegister(BaseModel):
     asd_level: Optional[str] = None
     diagnosis: Optional[List[str]] = None
     guardian_email: Optional[EmailStr] = None
+    parent_email: Optional[EmailStr] = None
+    preferences: Optional[Dict[str, Any]] = None
 
 class Token(BaseModel):
     access_token: str
@@ -84,20 +86,39 @@ class Psychologist(PsychologistBase):
     class Config:
         from_attributes = True
 
-# Child/Patient models
-class ChildBase(BaseModel):
+class ChildRegistrationRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
     age: int
     sex: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
+    date_of_birth: Optional[date] = None
     address: Optional[str] = None
     guardian_name: Optional[str] = None
     guardian_phone: Optional[str] = None
-    asd_level: Optional[str] = None
-    diagnosis: List[str] = []
     guardian_email: Optional[EmailStr] = None
-    preferences: Dict[str, Any] = {}
-    current_emotion: str = "neutral"
+    parent_email: Optional[EmailStr] = None
+    asd_level: Optional[str] = None
+    diagnosis: List[str] = Field(default_factory=list)
     clinical_history_file: Optional[str] = None
+    preferences: Dict[str, Any] = Field(default_factory=dict)
+
+class ChildBase(BaseModel):
+    name: str
+    email: EmailStr
+    age: int
+    sex: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    guardian_email: Optional[EmailStr] = None
+    parent_email: Optional[EmailStr] = None
+    asd_level: Optional[str] = None
+    diagnosis: List[str] = Field(default_factory=list)
+    clinical_history_file: Optional[str] = None
+    preferences: Dict[str, Any] = Field(default_factory=dict)
+    current_emotion: str = "neutral"
 
 class ChildCreate(ChildBase):
     user_id: UUID
@@ -108,10 +129,10 @@ class Child(ChildBase):
     user_id: UUID
     assigned_psychologist: Optional[UUID] = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
-
 
 class AssignChild(BaseModel):
     child_user_id: UUID
@@ -119,7 +140,14 @@ class AssignChild(BaseModel):
 
 # Biometric data models
 class BiometricDataBase(BaseModel):
-    microexpression_data: Dict[str, Any] = {}
+    heart_rate: Optional[int] = None
+    stress_level: Optional[str] = None
+    skin_temperature: Optional[float] = None
+    activity: Optional[str] = None
+    face_count: Optional[int] = None
+    dominant_emotion: Optional[str] = None
+    dominant_confidence: Optional[float] = None
+    microexpression_data: Dict[str, Any] = Field(default_factory=dict)
 
 class BiometricDataCreate(BiometricDataBase):
     child_id: UUID
@@ -158,7 +186,7 @@ class BiometricAlert(BiometricAlertBase):
 # Emotion record models
 class EmotionRecordBase(BaseModel):
     emotion: str  # 'joy', 'sadness', 'anger', 'fear', 'disgust', 'neutral'
-    intensity: int  # 0-100
+    intensity: float  # 0-100
     triggers: List[str] = []
     context: Optional[str] = None
 

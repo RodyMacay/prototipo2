@@ -14,12 +14,17 @@ interface BackendChild {
   guardian_name?: string;
   guardian_phone?: string;
   asd_level?: string;
-  diagnosis: string[];
+  diagnosis?: string[] | null;
   guardian_email?: string;
-  preferences: any;
+  parent_email?: string;
+  email?: string;
+  name?: string;
+  created_at?: string;
+  updated_at?: string;
+  preferences?: Record<string, unknown> | null;
   current_emotion: string;
-  clinical_history_file?: string;
-  user: {
+  clinical_history_file?: string | null;
+  user?: {
     id: string;
     name: string;
     email: string;
@@ -44,7 +49,9 @@ export interface NewPatientData {
   asd_level: string;
   diagnosis: string[];
   guardian_email: string;
-  clinical_history_file?: File;
+  parent_email?: string;
+  preferences?: Record<string, unknown>;
+  clinical_history_file?: File | string;
 }
 
 interface PatientState {
@@ -57,14 +64,31 @@ interface PatientState {
 
 // Helper para transformar la respuesta del backend al tipo del frontend
 const transformBackendChildToPatient = (child: BackendChild): Patient => {
+  const user = child.user ?? {
+    id: child.user_id,
+    name: child.name ?? '',
+    email: child.email ?? '',
+    role: 'child',
+    avatar: null,
+    created_at: child.created_at ?? child.updated_at ?? new Date().toISOString(),
+    updated_at: child.updated_at ?? child.created_at ?? new Date().toISOString(),
+  };
+
+  const diagnosis = (child.diagnosis ?? []).map((item) => String(item));
+  const preferences = (child.preferences ?? {}) as Record<string, unknown>;
+  const guardianEmail = child.guardian_email ?? child.parent_email;
+  const createdAt = user.created_at ? new Date(user.created_at) : new Date();
+  const updatedAt = user.updated_at ? new Date(user.updated_at) : createdAt;
+
   return {
-    id: child.user.id, // Usamos el ID de usuario como el ID principal en el frontend
-    name: child.user.name,
-    email: child.user.email,
+    id: user.id,
+    childProfileId: child.id,
+    name: user.name || child.name || '',
+    email: user.email || child.email || '',
     role: 'patient',
-    avatar: child.user.avatar || undefined,
-    createdAt: new Date(child.user.created_at),
-    updatedAt: new Date(child.user.updated_at),
+    avatar: user.avatar || undefined,
+    createdAt,
+    updatedAt,
     age: child.age,
     sex: child.sex,
     date_of_birth: child.date_of_birth ? new Date(child.date_of_birth) : undefined,
@@ -72,12 +96,12 @@ const transformBackendChildToPatient = (child: BackendChild): Patient => {
     guardian_name: child.guardian_name,
     guardian_phone: child.guardian_phone,
     asd_level: child.asd_level,
-    diagnosis: child.diagnosis,
-    guardian_email: child.guardian_email,
+    diagnosis,
+    guardian_email: guardianEmail,
     assignedPsychologist: child.assigned_psychologist || '',
-    preferences: child.preferences,
-    currentEmotion: child.current_emotion as any, // Se puede mejorar el tipado si es necesario
-    clinical_history_file: child.clinical_history_file,
+    preferences: preferences as Patient['preferences'],
+    currentEmotion: child.current_emotion as any,
+    clinical_history_file: child.clinical_history_file || undefined,
   };
 };
 
@@ -100,6 +124,16 @@ export const usePatientStore = create<PatientState>()((set, get) => ({
   addPatient: async (patientData) => {
     set({ loading: true });
     try {
+      const dateOfBirth = patientData.date_of_birth
+        ? patientData.date_of_birth.toISOString().split('T')[0]
+        : undefined;
+      const diagnosis = Array.isArray(patientData.diagnosis) ? patientData.diagnosis : [];
+      const preferences = patientData.preferences ?? {};
+      const clinicalHistoryValue =
+        typeof patientData.clinical_history_file === 'string'
+          ? patientData.clinical_history_file
+          : patientData.clinical_history_file?.name;
+
       const registerResponse = await api.post<{ user: User }>('/auth/register', {
         name: patientData.name,
         email: patientData.email,
@@ -107,13 +141,16 @@ export const usePatientStore = create<PatientState>()((set, get) => ({
         role: 'child',
         age: patientData.age,
         sex: patientData.sex,
-        date_of_birth: patientData.date_of_birth,
+        date_of_birth: dateOfBirth,
         address: patientData.address,
         guardian_name: patientData.guardian_name,
         guardian_phone: patientData.guardian_phone,
         asd_level: patientData.asd_level,
         guardian_email: patientData.guardian_email,
-        diagnosis: patientData.diagnosis,
+        parent_email: patientData.parent_email ?? patientData.guardian_email,
+        diagnosis,
+        preferences,
+        clinical_history_file: clinicalHistoryValue,
       });
 
       const newUserId = registerResponse.user.id;

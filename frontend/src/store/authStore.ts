@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { AuthApiError } from '@supabase/supabase-js';
 import { User, Psychologist, Patient, UserRole } from '@/types';
 import { SupabaseService } from '@/services/supabaseService';
 
@@ -148,65 +149,80 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true, error: null });
 
         try {
-          // Try backend API authentication first
-          const response = await fetch('http://localhost:8000/auth/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              username: email, // FastAPI OAuth2 expects 'username'
-              password: password,
-            }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const token = data.access_token;
-
-            // Store token in localStorage and state
-            localStorage.setItem('access_token', token);
-            set({ accessToken: token });
-
-            // Get user profile from backend
-            const userResponse = await fetch('http://localhost:8000/users/me', {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-              },
-            });
-
-            if (userResponse.ok) {
-              const userData = await userResponse.json();
-
-              set({
-                user: {
-                  id: userData.id,
-                  name: userData.name,
-                  email: userData.email,
-                  role: userData.role,
-                  avatar: userData.avatar,
-                  createdAt: new Date(userData.created_at),
-                  updatedAt: new Date(userData.updated_at),
+          let authResult;
+          try {
+            authResult = await SupabaseService.signIn(email, password);
+          } catch (signInError) {
+            if (
+              signInError instanceof AuthApiError &&
+              signInError.message === 'Email not confirmed'
+            ) {
+              const response = await fetch('http://localhost:8000/auth/confirm-email', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
                 },
-                isAuthenticated: true,
-                theme: userData.role === 'child' ? 'patient' : 'psychologist',
-                loading: false
+                body: JSON.stringify({ email }),
               });
-              return;
+
+              if (!response.ok) {
+                let detail = 'No se pudo confirmar el correo electrónico';
+                try {
+                  const data = await response.json();
+                  if (data?.detail) {
+                    detail = data.detail;
+                  }
+                } catch (parseError) {
+                  // ignore parse errors and use default detail
+                }
+                throw new Error(detail);
+              }
+
+              authResult = await SupabaseService.signIn(email, password);
+            } else {
+              throw signInError;
             }
           }
-        } catch (apiError) {
-          console.log('Backend auth failed, trying Supabase:', apiError);
-        }
 
-        try {
-          // Try Supabase authentication
-          const authResult = await SupabaseService.signIn(email, password);
+          const token = authResult.session?.access_token;
 
-          if (authResult?.user) {
-            // Get user profile from Supabase
+          if (!token) {
+            throw new Error('Supabase no devolvió un token de acceso.');
+          }
+
+          localStorage.setItem('access_token', token);
+          set({ accessToken: token });
+
+          // Try to hydrate the user from the backend using the Supabase JWT
+          const userResponse = await fetch('http://localhost:8000/users/me', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+
+          if (userResponse.ok) {
+            const userData = await userResponse.json();
+
+            set({
+              user: {
+                id: userData.id,
+                name: userData.name,
+                email: userData.email,
+                role: userData.role,
+                avatar: userData.avatar,
+                createdAt: new Date(userData.created_at),
+                updatedAt: new Date(userData.updated_at),
+              },
+              isAuthenticated: true,
+              theme: userData.role === 'child' ? 'patient' : 'psychologist',
+              loading: false
+            });
+            return;
+          }
+
+          // Fallback to Supabase profile if backend profile is unavailable
+          if (authResult.user) {
             const profile = await SupabaseService.getUserProfile(authResult.user.id, role);
-
             if (profile) {
               set({
                 user: profile,
@@ -218,7 +234,16 @@ export const useAuthStore = create<AuthState>()(
             }
           }
         } catch (supabaseError) {
-          console.log('Supabase auth failed, trying mock data:', supabaseError);
+          console.error('Supabase auth failed:', supabaseError);
+          set({
+            user: null,
+            isAuthenticated: false,
+            loading: false,
+            error: supabaseError instanceof Error ? supabaseError.message : 'Error de autenticación',
+            theme: 'psychologist',
+            accessToken: null
+          });
+          return;
         }
 
         // Fallback to mock authentication for demo

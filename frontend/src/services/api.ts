@@ -49,6 +49,27 @@ const api = {
     return response.json();
   },
 
+  async put<T>(endpoint: string, body: any): Promise<T> {
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    }
+
+    return response
+      .json()
+      .catch(() => ({} as T));
+  },
+
   // Puedes añadir aquí métodos para PUT, DELETE, etc. si los necesitas
 };
 

@@ -1,144 +1,313 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  ArrowLeft, 
-  Download, 
-  FileText, 
-  Brain, 
-  Heart, 
-  Activity, 
-  Calendar,
+import {
+  ArrowLeft,
+  Loader2,
   TrendingUp,
-  AlertCircle
+  Brain,
+  Heart,
+  Activity,
+  Calendar,
+  AlertCircle,
+  Download,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { differenceInHours, differenceInMinutes, format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import api from '@/services/api';
+import {
+  Patient,
+  TherapySession,
+  BiometricData,
+  EmotionRecord,
+  BiometricAlert,
+} from '@/types';
+
+interface BackendTherapySession {
+  id: string;
+  child_id: string;
+  psychologist_id: string;
+  start_time: string;
+  end_time?: string | null;
+  status: 'active' | 'paused' | 'completed' | 'cancelled';
+  objectives?: string[] | null;
+  notes?: string | null;
+}
+
+interface BackendBiometricData {
+  id: string;
+  child_id: string;
+  timestamp: string;
+  heart_rate?: number | null;
+  stress_level?: string | null;
+  face_count?: number | null;
+  dominant_emotion?: string | null;
+  dominant_confidence?: number | null;
+}
+
+interface BackendEmotionRecord {
+  id: string;
+  child_id: string;
+  emotion: string;
+  intensity: number;
+  timestamp: string;
+  context?: string | null;
+}
+
+interface BackendBiometricAlert {
+  id: string;
+  child_id: string;
+  type: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  timestamp: string;
+  resolved: boolean;
+}
+
+const mapSession = (session: BackendTherapySession): TherapySession => ({
+  id: session.id,
+  childId: session.child_id,
+  psychologistId: session.psychologist_id,
+  startTime: new Date(session.start_time),
+  endTime: session.end_time ? new Date(session.end_time) : undefined,
+  status: session.status,
+  objectives: session.objectives ?? [],
+  notes: session.notes ?? '',
+  activities: [],
+  biometricLogs: [],
+  emotionLogs: [],
+  pauseBreaks: [],
+});
+
+const mapBiometric = (item: BackendBiometricData): BiometricData => ({
+  timestamp: new Date(item.timestamp),
+  heartRate: item.heart_rate ?? undefined,
+  stressLevel: (item.stress_level as BiometricData['stressLevel']) ?? undefined,
+  faceCount: item.face_count ?? undefined,
+  dominantEmotion: item.dominant_emotion ?? undefined,
+  dominantConfidence: item.dominant_confidence ?? undefined,
+});
+
+const mapEmotion = (item: BackendEmotionRecord): EmotionRecord => ({
+  emotion: item.emotion as EmotionRecord['emotion'],
+  intensity: item.intensity,
+  timestamp: new Date(item.timestamp),
+  context: item.context ?? undefined,
+});
+
+const mapAlert = (item: BackendBiometricAlert): BiometricAlert => ({
+  id: item.id,
+  childId: item.child_id,
+  type: item.type as BiometricAlert['type'],
+  severity: item.severity,
+  message: item.message,
+  timestamp: new Date(item.timestamp),
+  resolved: item.resolved,
+});
+
+const capitalize = (value?: string | null) =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Sin datos';
 
 interface PatientDetailProps {
-  patient: any;
+  patient: Patient;
   onBack: () => void;
 }
 
 export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack }) => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const [sessions, setSessions] = useState<TherapySession[]>([]);
+  const [biometrics, setBiometrics] = useState<BiometricData[]>([]);
+  const [emotions, setEmotions] = useState<EmotionRecord[]>([]);
+  const [alerts, setAlerts] = useState<BiometricAlert[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      if (!patient.childProfileId) {
+        setError('Este paciente aún no tiene un perfil biométrico asociado.');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const [sessionsRes, biometricsRes, emotionsRes, alertsRes] = await Promise.all([
+          api.get<BackendTherapySession[]>(`/therapy-sessions/child/${patient.childProfileId}`),
+          api.get<BackendBiometricData[]>(
+            `/biometric-data/history?limit=60&child_id=${patient.childProfileId}`,
+          ),
+          api.get<BackendEmotionRecord[]>(
+            `/emotion-records/history?limit=40&child_id=${patient.childProfileId}`,
+          ),
+          api.get<BackendBiometricAlert[]>(`/alerts?child_id=${patient.childProfileId}`),
+        ]);
+
+        if (!active) return;
+
+        setSessions(
+          (sessionsRes ?? [])
+            .map(mapSession)
+            .sort((a, b) => b.startTime.getTime() - a.startTime.getTime()),
+        );
+        setBiometrics(
+          (biometricsRes ?? [])
+            .map(mapBiometric)
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
+        );
+        setEmotions(
+          (emotionsRes ?? [])
+            .map(mapEmotion)
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
+        );
+        setAlerts(
+          (alertsRes ?? [])
+            .map(mapAlert)
+            .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()),
+        );
+      } catch (err) {
+        console.error('Error loading patient detail', err);
+        if (active) {
+          setError(
+            err instanceof Error ? err.message : 'No se pudo cargar la información del paciente.',
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      active = false;
+    };
+  }, [patient.childProfileId, refreshKey]);
+
+  const totalSessions = sessions.length;
+  const completedSessions = sessions.filter((session) => session.status === 'completed').length;
+  const progress = totalSessions ? Math.round((completedSessions / totalSessions) * 100) : 0;
+
+  const activeSessions = sessions.filter((session) => session.status === 'active').length;
+  const lastSession = sessions[0];
+
+  const alertsLast24h = alerts.filter(
+    (alert) => differenceInHours(new Date(), alert.timestamp) <= 24,
+  ).length;
+  const unresolvedAlerts = alerts.filter((alert) => !alert.resolved).length;
+
+  const dominantEmotionEntry = useMemo(() => {
+    const counts: Record<string, number> = {};
+    emotions.forEach((record) => {
+      const key = record.emotion.toLowerCase();
+      counts[key] = (counts[key] ?? 0) + 1;
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return sorted[0] ?? [patient.currentEmotion.toLowerCase(), 0];
+  }, [emotions, patient.currentEmotion]);
+
+  const dominantEmotion = capitalize(dominantEmotionEntry[0]);
+  const emotionSamples = emotions.length || dominantEmotionEntry[1];
+  const emotionShare = emotionSamples
+    ? Math.round((dominantEmotionEntry[1] / emotionSamples) * 100)
+    : 0;
+
+  const recentEmotions = emotions.slice(0, 5);
+  const recentBiometrics = biometrics.slice(0, 6);
+
+  const averageHeartRate = useMemo(() => {
+    const values = biometrics
+      .map((record) => record.heartRate)
+      .filter((value): value is number => typeof value === 'number');
+    return values.length
+      ? Math.round(values.reduce((acc, value) => acc + value, 0) / values.length)
+      : null;
+  }, [biometrics]);
 
   const generatePDF = async () => {
     setIsGeneratingPdf(true);
-    
     try {
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const logoY = 20;
-      
-      // Header
-      pdf.setFontSize(24);
-      pdf.setTextColor(51, 65, 85);
-      pdf.text('LUMINOVA', 20, logoY);
-      
-      pdf.setFontSize(12);
-      pdf.setTextColor(100, 116, 139);
-      pdf.text('Análisis Profesional TEA - Reporte Clínico', 20, logoY + 10);
-      
-      // Patient Info
+      const pdf = new jsPDF();
+      const today = new Date();
+
       pdf.setFontSize(16);
-      pdf.setTextColor(51, 65, 85);
-      pdf.text('Información del Paciente', 20, 50);
-      
+      pdf.text('Reporte de monitoreo', 14, 20);
+
       pdf.setFontSize(11);
-      pdf.text(`Nombre: ${patient.name}`, 20, 60);
-      pdf.text(`Edad: ${patient.age} años`, 20, 67);
-      pdf.text(`Diagnóstico: ${patient.diagnosis}`, 20, 74);
-      pdf.text(`Fecha del reporte: ${new Date().toLocaleDateString('es-ES')}`, 20, 81);
-      
-      // Progress Analysis
-      pdf.setFontSize(16);
-      pdf.setTextColor(51, 65, 85);
-      pdf.text('Análisis de Progreso', 20, 100);
-      
+      pdf.text(`Paciente: ${patient.name}`, 14, 32);
+      pdf.text(`Edad: ${patient.age} años`, 14, 38);
+      pdf.text(`Diagnóstico: ${diagnosisText}`, 14, 44);
+      pdf.text(`Fecha: ${format(today, 'PPP', { locale: es })}`, 14, 50);
+
+      pdf.setFontSize(13);
+      pdf.text('Resumen', 14, 64);
       pdf.setFontSize(11);
-      pdf.text(`Progreso general: ${patient.progress}%`, 20, 110);
-      
-      const progressAreas = [
-        { area: 'Comunicación Social', score: 85, recommendation: 'Continuar con ejercicios de interacción social estructurada' },
-        { area: 'Comportamientos Repetitivos', score: 70, recommendation: 'Implementar estrategias de redirección conductual' },
-        { area: 'Procesamiento Sensorial', score: 78, recommendation: 'Mantener terapia de integración sensorial' },
-        { area: 'Habilidades Adaptativas', score: 88, recommendation: 'Reforzar autonomía en actividades de vida diaria' }
-      ];
-      
-      let yPos = 120;
-      progressAreas.forEach((area) => {
-        pdf.setFontSize(12);
-        pdf.setTextColor(51, 65, 85);
-        pdf.text(`${area.area}: ${area.score}%`, 25, yPos);
-        
-        pdf.setFontSize(10);
-        pdf.setTextColor(100, 116, 139);
-        const lines = pdf.splitTextToSize(`Recomendación: ${area.recommendation}`, 160);
-        pdf.text(lines, 25, yPos + 7);
-        
-        yPos += 20;
-      });
-      
-      // Biometric Analysis
-      pdf.setFontSize(16);
-      pdf.setTextColor(51, 65, 85);
-      pdf.text('Análisis Biométrico', 20, yPos + 10);
-      
-      yPos += 20;
-      pdf.setFontSize(11);
-      pdf.text(`Frecuencia cardíaca promedio: ${patient.heartRate} BPM`, 20, yPos);
-      pdf.text(`Nivel de estrés: Bajo-Moderado`, 20, yPos + 7);
-      pdf.text(`Patrón de actividad: Regular`, 20, yPos + 14);
-      
-      // Recommendations
-      yPos += 30;
-      pdf.setFontSize(16);
-      pdf.setTextColor(51, 65, 85);
-      pdf.text('Recomendaciones Profesionales', 20, yPos);
-      
-      const recommendations = [
-        '• Continuar con sesiones de terapia conductual 3 veces por semana',
-        '• Implementar programa de habilidades sociales en grupo pequeño',
-        '• Mantener rutinas estructuradas con apoyos visuales',
-        '• Evaluación nutricional para optimizar función cognitiva',
-        '• Seguimiento mensual del progreso biométrico'
-      ];
-      
-      yPos += 10;
-      pdf.setFontSize(11);
-      recommendations.forEach((rec) => {
-        const lines = pdf.splitTextToSize(rec, 170);
-        pdf.text(lines, 20, yPos);
-        yPos += lines.length * 5 + 2;
-      });
-      
-      // Footer
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 116, 139);
-      pdf.text('Este reporte ha sido generado automáticamente por el sistema LUMINOVA', 20, 280);
-      pdf.text('Para consultas profesionales, contacte con el equipo clínico', 20, 285);
-      
-      pdf.save(`Reporte_${patient.name.replace(' ', '_')}_${new Date().toISOString().split('T')[0]}.pdf`);
-      
-    } catch (error) {
-      console.error('Error generating PDF:', error);
+      pdf.text(`• Progreso terapéutico: ${progress}%`, 14, 72);
+      pdf.text(`• Emoción predominante: ${dominantEmotion} (${emotionShare}%)`, 14, 78);
+      pdf.text(
+        `• Frecuencia cardíaca promedio: ${
+          averageHeartRate !== null ? `${averageHeartRate} BPM` : 'Sin datos'
+        }`,
+        14,
+        84,
+      );
+      pdf.text(
+        `• Alertas últimas 24h: ${alertsLast24h} (pendientes: ${unresolvedAlerts})`,
+        14,
+        90,
+      );
+
+      if (lastSession) {
+        pdf.text(
+          `Última sesión: ${format(lastSession.startTime, 'PPP p', { locale: es })}`,
+          14,
+          100,
+        );
+      }
+
+      pdf.setFontSize(9);
+      pdf.text(
+        'Reporte generado automáticamente con datos agregados desde Luminova.',
+        14,
+        114,
+      );
+
+      pdf.save(
+        `reporte_${patient.name.replace(/\\s+/g, '_')}_${format(today, 'yyyyMMdd')}.pdf`,
+      );
+    } catch (err) {
+      console.error('Error generating PDF', err);
     } finally {
       setIsGeneratingPdf(false);
     }
   };
 
-  const mockSessionHistory = [
-    { date: '2024-01-15', duration: '45 min', focus: 'Comunicación social', progress: 'Mejoría notable' },
-    { date: '2024-01-12', duration: '45 min', focus: 'Habilidades adaptativas', progress: 'Progreso estable' },
-    { date: '2024-01-10', duration: '30 min', focus: 'Integración sensorial', progress: 'Avance significativo' }
-  ];
+  const handleRefresh = () => setRefreshKey((value) => value + 1);
+
+  const diagnosisText = patient.diagnosis.length
+    ? patient.diagnosis.join(', ')
+    : 'Sin diagnóstico registrado';
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
           <Button variant="outline" onClick={onBack}>
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -146,175 +315,89 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-gray-900">{patient.name}</h1>
-            <p className="text-gray-600">{patient.age} años • {patient.diagnosis}</p>
+            <p className="text-gray-600">
+              {patient.age} años • {diagnosisText}
+            </p>
           </div>
         </div>
-        
-        <Button 
-          onClick={generatePDF}
-          disabled={isGeneratingPdf}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          <Download className="w-4 h-4 mr-2" />
-          {isGeneratingPdf ? 'Generando...' : 'Descargar Reporte PDF'}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={generatePDF}
+            disabled={loading || isGeneratingPdf}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            {isGeneratingPdf ? 'Generando…' : 'Descargar PDF'}
+          </Button>
+          <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+            Actualizar datos
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quick Stats */}
-        <Card className="psych-card">
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 text-gray-600">
+          <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+          <p className="mt-3 text-sm">Cargando información del paciente…</p>
+        </div>
+      ) : error ? (
+        <Card className="psych-card border-red-200 bg-red-50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-green-500" />
-              Progreso General
+            <CardTitle className="flex items-center gap-2 text-red-700">
+              <AlertCircle className="w-5 h-5" />
+              No se pudo cargar la información
             </CardTitle>
+            <CardDescription className="text-red-500">{error}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold mb-2">{patient.progress}%</div>
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-3">
-              <div 
-                className="bg-green-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${patient.progress}%` }}
-              />
-            </div>
-            <Badge variant="secondary">Mejorando</Badge>
+            <Button onClick={handleRefresh}>Reintentar</Button>
           </CardContent>
         </Card>
-
-        <Card className="psych-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Heart className="w-5 h-5 text-red-500" />
-              Estado Biométrico
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold mb-2">{patient.heartRate} <span className="text-lg">BPM</span></div>
-            <p className="text-sm text-gray-600 mb-3">Frecuencia cardíaca</p>
-            <Badge variant="secondary">Estable</Badge>
-          </CardContent>
-        </Card>
-
-        <Card className="psych-card">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Brain className="w-5 h-5 text-purple-500" />
-              Sesiones Activas
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold mb-2">12</div>
-            <p className="text-sm text-gray-600 mb-3">Este mes</p>
-            <Badge variant="outline">3/semana</Badge>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="analysis" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="analysis">Análisis TEA</TabsTrigger>
-          <TabsTrigger value="sessions">Sesiones</TabsTrigger>
-          <TabsTrigger value="biometrics">Biométricos</TabsTrigger>
-          <TabsTrigger value="reports">Reportes</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="analysis" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[
-              { area: 'Comunicación Social', score: 85, trend: 'up' },
-              { area: 'Comportamientos Repetitivos', score: 70, trend: 'stable' },
-              { area: 'Procesamiento Sensorial', score: 78, trend: 'up' },
-              { area: 'Habilidades Adaptativas', score: 88, trend: 'up' }
-            ].map((area, index) => (
-              <motion.div
-                key={area.area}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-              >
-                <Card className="psych-card">
-                  <CardHeader>
-                    <CardTitle className="text-lg">{area.area}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-2xl font-bold">{area.score}%</span>
-                      <Badge variant={area.trend === 'up' ? 'default' : 'secondary'}>
-                        {area.trend === 'up' ? '↗ Mejorando' : '→ Estable'}
-                      </Badge>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${area.score}%` }}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="sessions" className="space-y-6">
-          <Card className="psych-card">
-            <CardHeader>
-              <CardTitle>Historial de Sesiones</CardTitle>
-              <CardDescription>Registro detallado de sesiones terapéuticas</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {mockSessionHistory.map((session, index) => (
-                  <div key={index} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">{session.date}</span>
-                          <Badge variant="outline">{session.duration}</Badge>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">Enfoque: {session.focus}</p>
-                        <p className="text-sm mt-1">{session.progress}</p>
-                      </div>
-                      <Button variant="outline" size="sm">
-                        <FileText className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="biometrics" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="psych-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Heart className="w-5 h-5 text-red-500" />
-                  Frecuencia Cardíaca
+                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  Progreso terapéutico
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{patient.heartRate} BPM</div>
-                <p className="text-sm text-gray-600">Promedio últimas 24h</p>
+                <div className="text-3xl font-bold">{progress}%</div>
+                <div className="w-full bg-gray-200 rounded-full h-2 my-3">
+                  <div
+                    className="bg-green-600 h-2 rounded-full"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="text-sm text-gray-600">
+                  {completedSessions} de {totalSessions} sesiones completadas.
+                </p>
               </CardContent>
             </Card>
-            
+
             <Card className="psych-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Activity className="w-5 h-5 text-blue-500" />
-                  Nivel de Estrés
+                  <Brain className="w-5 h-5 text-purple-500" />
+                  Estado emocional
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">Bajo</div>
-                <p className="text-sm text-gray-600">Estado actual</p>
+                <div className="text-3xl font-bold capitalize">{dominantEmotion}</div>
+                <Badge variant="secondary" className="mt-2">
+                  {emotionShare}% de {emotionSamples} registros
+                </Badge>
+                <p className="text-sm text-gray-600 mt-2">
+                  Última lectura:{' '}
+                  {emotions[0]
+                    ? format(emotions[0].timestamp, "PPP p", { locale: es })
+                    : 'Sin registros'}
+                </p>
               </CardContent>
             </Card>
-            
+
             <Card className="psych-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -323,49 +406,224 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">0</div>
-                <p className="text-sm text-gray-600">Últimas 24h</p>
+                <div className="text-3xl font-bold">{alertsLast24h}</div>
+                <p className="text-sm text-gray-600">
+                  En las últimas 24h • {unresolvedAlerts} sin resolver
+                </p>
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
 
-        <TabsContent value="reports" className="space-y-6">
-          <Card className="psych-card">
-            <CardHeader>
-              <CardTitle>Generar Reportes</CardTitle>
-              <CardDescription>Crea reportes profesionales detallados</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button 
-                  onClick={generatePDF}
-                  disabled={isGeneratingPdf}
-                  className="h-20 flex-col bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <FileText className="w-6 h-6 mb-2" />
-                  Reporte TEA Completo
-                </Button>
-                
-                <Button variant="outline" className="h-20 flex-col">
-                  <Heart className="w-6 h-6 mb-2" />
-                  Análisis Biométrico
-                </Button>
-                
-                <Button variant="outline" className="h-20 flex-col">
-                  <Calendar className="w-6 h-6 mb-2" />
-                  Historial Sesiones
-                </Button>
-                
-                <Button variant="outline" className="h-20 flex-col">
-                  <TrendingUp className="w-6 h-6 mb-2" />
-                  Progreso Mensual
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          <Tabs defaultValue="summary" className="space-y-6">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="summary">Resumen</TabsTrigger>
+              <TabsTrigger value="sessions">Sesiones</TabsTrigger>
+              <TabsTrigger value="biometrics">Biométricos</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="summary" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="psych-card">
+                <CardHeader>
+                  <CardTitle>Distribución emocional</CardTitle>
+                  <CardDescription>
+                    Emociones registradas en las últimas mediciones.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {emotions.length ? (
+                    <div className="space-y-3">
+                      {Object.entries(
+                        emotions.reduce<Record<string, number>>((acc, record) => {
+                          const key = record.emotion.toLowerCase();
+                          acc[key] = (acc[key] ?? 0) + 1;
+                          return acc;
+                        }, {}),
+                      )
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([emotion, count]) => (
+                          <div key={emotion} className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <p className="text-sm font-medium capitalize">{emotion}</p>
+                              <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                <div
+                                  className="bg-purple-500 h-2 rounded-full"
+                                  style={{
+                                    width: `${Math.round((count / emotions.length) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            <span className="text-xs text-gray-600 w-10 text-right">{count}</span>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      Aún no se registran emociones para este paciente.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="psych-card">
+                <CardHeader>
+                  <CardTitle>Emociones recientes</CardTitle>
+                  <CardDescription>Últimos registros capturados.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {recentEmotions.length ? (
+                    <div className="space-y-3">
+                      {recentEmotions.map((record) => (
+                        <div key={record.timestamp.getTime()} className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between text-sm">
+                            <Badge variant="outline" className="capitalize">
+                              {record.emotion}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              {format(record.timestamp, "PPP p", { locale: es })}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Intensidad: {Math.round(record.intensity)}%
+                          </p>
+                          {record.context && (
+                            <p className="text-xs text-gray-500 mt-1">Contexto: {record.context}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No hay registros emocionales recientes para mostrar.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="sessions">
+              <Card className="psych-card">
+                <CardHeader>
+                  <CardTitle>Sesiones terapéuticas</CardTitle>
+                  <CardDescription>
+                    Registro de sesiones programadas con duración y estado.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {sessions.length ? (
+                    <div className="space-y-4">
+                      {sessions.map((session) => {
+                        const duration =
+                          session.endTime &&
+                          Math.max(1, differenceInMinutes(session.endTime, session.startTime));
+                        return (
+                          <div key={session.id} className="border rounded-lg p-4">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <Calendar className="w-4 h-4 text-gray-500" />
+                                <span>{format(session.startTime, "PPP p", { locale: es })}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="capitalize">
+                                  {session.status}
+                                </Badge>
+                                {duration && <Badge variant="outline">{duration} min</Badge>}
+                              </div>
+                            </div>
+                            {session.notes && (
+                              <p className="text-sm text-gray-600 mt-2">{session.notes}</p>
+                            )}
+                            {session.objectives.length > 0 && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                Objetivos: {session.objectives.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      Aún no se han registrado sesiones para este paciente.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="biometrics">
+              <Card className="psych-card">
+                <CardHeader>
+                  <CardTitle>Biometría reciente</CardTitle>
+                  <CardDescription>
+                    Resumen de las últimas capturas agregadas por el sistema.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase">Frecuencia cardíaca</p>
+                      <p className="text-2xl font-semibold">
+                        {averageHeartRate !== null ? `${averageHeartRate} BPM` : '--'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase">Mediciones</p>
+                      <p className="text-2xl font-semibold">{biometrics.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase">Caras detectadas</p>
+                      <p className="text-2xl font-semibold">
+                        {recentBiometrics.length
+                          ? Math.round(
+                              recentBiometrics.reduce(
+                                (acc, record) => acc + (record.faceCount ?? 0),
+                                0,
+                              ) / recentBiometrics.length,
+                            )
+                          : 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {recentBiometrics.length ? (
+                    <div className="space-y-3">
+                      {recentBiometrics.map((record) => (
+                        <div
+                          key={record.timestamp.getTime()}
+                          className="flex flex-col md:flex-row md:items-center md:justify-between border rounded-lg px-3 py-2"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {format(record.timestamp, "PPP p", { locale: es })}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Emoción dominante:{' '}
+                              <span className="capitalize">
+                                {record.dominantEmotion ?? 'Sin datos'}
+                              </span>{' '}
+                              ({Math.round(record.dominantConfidence ?? 0)}%)
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-600 mt-2 md:mt-0">
+                            <span>FC: {record.heartRate ?? '--'} BPM</span>
+                            <span>Estrés: {record.stressLevel ?? '--'}</span>
+                            <span>Caras: {record.faceCount ?? 0}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No hay mediciones biométricas registradas todavía.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
     </div>
   );
 };
