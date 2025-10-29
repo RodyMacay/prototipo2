@@ -21,7 +21,7 @@ interface BackendChild {
   name?: string;
   created_at?: string;
   updated_at?: string;
-  preferences?: Record<string, unknown> | null;
+  preferences?: string | Record<string, unknown> | null;
   current_emotion: string;
   clinical_history_file?: string | null;
   user?: {
@@ -50,7 +50,7 @@ export interface NewPatientData {
   diagnosis: string[];
   guardian_email: string;
   parent_email?: string;
-  preferences?: Record<string, unknown>;
+  preferences?: string | Record<string, unknown> | null;
   clinical_history_file?: File | string;
 }
 
@@ -75,7 +75,14 @@ const transformBackendChildToPatient = (child: BackendChild): Patient => {
   };
 
   const diagnosis = (child.diagnosis ?? []).map((item) => String(item));
-  const preferences = (child.preferences ?? {}) as Record<string, unknown>;
+  const rawPreferences = child.preferences;
+  let preferences: Patient['preferences'] = null;
+
+  if (typeof rawPreferences === 'string' || rawPreferences === null || rawPreferences === undefined) {
+    preferences = rawPreferences ?? null;
+  } else {
+    preferences = rawPreferences as Record<string, unknown>;
+  }
   const guardianEmail = child.guardian_email ?? child.parent_email;
   const createdAt = user.created_at ? new Date(user.created_at) : new Date();
   const updatedAt = user.updated_at ? new Date(user.updated_at) : createdAt;
@@ -99,8 +106,8 @@ const transformBackendChildToPatient = (child: BackendChild): Patient => {
     diagnosis,
     guardian_email: guardianEmail,
     assignedPsychologist: child.assigned_psychologist || '',
-    preferences: preferences as Patient['preferences'],
-    currentEmotion: child.current_emotion as any,
+    preferences,
+    currentEmotion: child.current_emotion as Patient['currentEmotion'],
     clinical_history_file: child.clinical_history_file || undefined,
   };
 };
@@ -128,7 +135,10 @@ export const usePatientStore = create<PatientState>()((set, get) => ({
         ? patientData.date_of_birth.toISOString().split('T')[0]
         : undefined;
       const diagnosis = Array.isArray(patientData.diagnosis) ? patientData.diagnosis : [];
-      const preferences = patientData.preferences ?? {};
+      const preferences =
+        typeof patientData.preferences === 'string' || patientData.preferences === null || patientData.preferences === undefined
+          ? patientData.preferences ?? null
+          : JSON.stringify(patientData.preferences);
       const clinicalHistoryValue =
         typeof patientData.clinical_history_file === 'string'
           ? patientData.clinical_history_file

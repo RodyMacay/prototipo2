@@ -34,7 +34,7 @@ export interface Patient extends User {
   diagnosis: string[];
   guardian_email?: string;
   assignedPsychologist: string;
-  preferences: PatientPreferences;
+  preferences?: PatientPreferences | Record<string, unknown> | string | null;
   currentEmotion: EmotionType;
   biometricData?: BiometricData;
   clinical_history_file?: string;

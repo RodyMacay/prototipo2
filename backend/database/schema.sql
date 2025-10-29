@@ -45,10 +45,36 @@ CREATE TABLE IF NOT EXISTS children (
 CREATE TABLE IF NOT EXISTS biometric_data (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   child_id UUID REFERENCES children(id) ON DELETE CASCADE,
+  heart_rate INTEGER,
+  stress_level VARCHAR(10) CHECK (stress_level IN ('low', 'medium', 'high')),
+  skin_temperature NUMERIC(5,2),
+  activity VARCHAR(20) CHECK (activity IN ('resting', 'active', 'excited', 'agitated')),
+  face_count INTEGER DEFAULT 0,
+  dominant_emotion VARCHAR(30),
+  dominant_confidence NUMERIC(6,2),
   microexpression_data JSONB DEFAULT '{}',
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS heart_rate INTEGER;
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS stress_level VARCHAR(10);
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS skin_temperature NUMERIC(5,2);
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS activity VARCHAR(20);
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS face_count INTEGER DEFAULT 0;
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS dominant_emotion VARCHAR(30);
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS dominant_confidence NUMERIC(6,2);
+ALTER TABLE biometric_data ADD COLUMN IF NOT EXISTS microexpression_data JSONB DEFAULT '{}';
+ALTER TABLE biometric_data ALTER COLUMN microexpression_data SET DEFAULT '{}';
+
+
+ALTER TABLE biometric_data
+  ADD CONSTRAINT IF NOT EXISTS chk_biometric_stress_level
+  CHECK (stress_level IS NULL OR stress_level IN ('low', 'medium', 'high'));
+
+ALTER TABLE biometric_data
+  ADD CONSTRAINT IF NOT EXISTS chk_biometric_activity
+  CHECK (activity IS NULL OR activity IN ('resting', 'active', 'excited', 'agitated'));
 
 CREATE TABLE IF NOT EXISTS biometric_alerts (
   id VARCHAR(255) PRIMARY KEY,

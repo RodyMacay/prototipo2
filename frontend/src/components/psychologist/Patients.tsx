@@ -8,12 +8,147 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { Users, Plus, Search, User, Loader2, Activity, Calendar as CalendarIcon, Upload } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Users, Plus, Search, User, Loader2, Activity, Calendar as CalendarIcon, Upload, Mail, Phone, MapPin, Sparkles, Clock3 } from 'lucide-react';
 import { Patient } from '@/types';
 import { PatientDetail } from './PatientDetail';
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: index * 0.05,
+      type: 'spring',
+      stiffness: 160,
+      damping: 18,
+    },
+  }),
+};
+
+const getInitials = (name: string) => {
+  const parts = name.split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part.charAt(0)).join('').toUpperCase() || 'P';
+};
+
+const formatBirthDate = (date?: Date) => {
+  if (!date || Number.isNaN(date.getTime())) {
+    return 'Fecha de nacimiento no registrada';
+  }
+  try {
+    return `Nacimiento: ${format(date, "dd MMM yyyy", { locale: es })}`;
+  } catch {
+    return 'Fecha de nacimiento no registrada';
+  }
+};
+
+const formatUpdatedAt = (date?: Date) => {
+  if (!date || Number.isNaN(date.getTime())) {
+    return 'Actualizacion pendiente';
+  }
+  try {
+    return `Actualizado ${format(date, "dd MMM yyyy", { locale: es })}`;
+  } catch {
+    return 'Actualizacion pendiente';
+  }
+};
+
+const formatEmotionLabel = (emotion?: Patient['currentEmotion']) => {
+  if (!emotion) return 'Sin dato';
+  const normalized = typeof emotion === 'string' ? emotion : String(emotion);
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+interface PreferenceEntry {
+  label: string;
+  value: string;
+}
+
+interface PreferenceDisplay {
+  entries?: PreferenceEntry[];
+  note?: string;
+}
+
+const formatPreferenceKey = (key: string) =>
+  key
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+
+const flattenPreferenceObject = (
+  data: Record<string, unknown>,
+  parentLabel = ''
+): PreferenceEntry[] => {
+  const items: PreferenceEntry[] = [];
+
+  Object.entries(data).forEach(([rawKey, rawValue]) => {
+    const label = parentLabel ? `${parentLabel} · ${formatPreferenceKey(rawKey)}` : formatPreferenceKey(rawKey);
+    if (rawValue === null || rawValue === undefined || rawValue === '') {
+      return;
+    }
+
+    if (Array.isArray(rawValue)) {
+      const formattedArray = rawValue
+        .map((item) => {
+          if (item === null || item === undefined || item === '') return null;
+          if (typeof item === 'object') {
+            const nestedEntries = flattenPreferenceObject(item as Record<string, unknown>, label);
+            if (nestedEntries.length) {
+              return nestedEntries.map((entry) => `${entry.label}: ${entry.value}`).join(' · ');
+            }
+            return null;
+          }
+          return String(item);
+        })
+        .filter((item): item is string => Boolean(item))
+        .join(', ');
+
+      if (formattedArray) {
+        items.push({ label, value: formattedArray });
+      }
+      return;
+    }
+
+    if (typeof rawValue === 'object') {
+      items.push(...flattenPreferenceObject(rawValue as Record<string, unknown>, label));
+      return;
+    }
+
+    items.push({ label, value: String(rawValue) });
+  });
+
+  return items;
+};
+
+const buildPreferenceDisplay = (preferences: Patient['preferences']): PreferenceDisplay | null => {
+  if (!preferences) return null;
+
+  const parseObject = (value: Record<string, unknown>) => {
+    const entries = flattenPreferenceObject(value);
+    return entries.length ? { entries } : null;
+  };
+
+  if (typeof preferences === 'string') {
+    const trimmed = preferences.trim();
+    if (!trimmed) return null;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parseObject(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // Ignore JSON parsing errors and fall back to text notes.
+    }
+
+    return { note: trimmed };
+  }
+
+  return parseObject(preferences as Record<string, unknown>);
+};
 
 export const PatientsView: React.FC = () => {
   const { patients, fetchPatients, addPatient, loading } = usePatientStore();
@@ -58,15 +193,7 @@ export const PatientsView: React.FC = () => {
             .map((item) => item.trim())
             .filter(Boolean);
 
-    let preferencesData: Record<string, unknown> | undefined;
-    if (preferencesInput.trim()) {
-      try {
-        preferencesData = JSON.parse(preferencesInput);
-      } catch {
-        setError('Las preferencias deben ser un JSON válido.');
-        return;
-      }
-    }
+    const preferencesText = preferencesInput.trim();
 
     const patientDataWithFile: NewPatientData = {
       name: newPatientData.name,
@@ -82,7 +209,7 @@ export const PatientsView: React.FC = () => {
       diagnosis: diagnosisList,
       guardian_email: newPatientData.guardian_email,
       parent_email: newPatientData.guardian_email,
-      preferences: preferencesData ?? newPatientData.preferences ?? {},
+      preferences: preferencesText || null,
       clinical_history_file: selectedFile ? selectedFile.name : undefined,
     };
 
@@ -334,15 +461,15 @@ export const PatientsView: React.FC = () => {
               <Input id="guardian_email" type="email" value={newPatientData.guardian_email || ''} onChange={(e) => setNewPatientData({...newPatientData, guardian_email: e.target.value})} placeholder="tutor@email.com" />
             </div>
             <div>
-              <Label htmlFor="preferences">Preferencias del paciente (JSON opcional)</Label>
+              <Label htmlFor="preferences">Notas o preferencias del paciente (opcional)</Label>
               <textarea
                 id="preferences"
                 className="w-full h-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 value={preferencesInput}
                 onChange={(e) => setPreferencesInput(e.target.value)}
-                placeholder={`Ej: {"sensory":{"sound":"alto","light":"medio"}}`}
+                placeholder="Ej: Prefiere actividades musicales y ambientes con poca luz."
               />
-              <p className="text-xs text-gray-500 mt-1">Proporcione un JSON válido para almacenar preferencias personalizadas.</p>
+              <p className="text-xs text-gray-500 mt-1">Escribe texto libre para registrar gustos, sensibilidades o recomendaciones.</p>
             </div>
 
             <div>
@@ -378,46 +505,178 @@ export const PatientsView: React.FC = () => {
         </Card>
       )}
 
-      <Accordion type="single" collapsible className="w-full">
-        {loading && patients.length === 0 ? (
-            <div className="flex justify-center items-center p-8">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                <p className='ml-4 text-gray-600'>Cargando pacientes...</p>
-            </div>
-        ) : patients.length === 0 ? (
-            <div className="text-center p-8">
-                <p className="text-gray-600">No tienes pacientes asignados.</p>
-                <p className="text-sm text-gray-500 mt-2">Usa el botón "Nuevo Paciente" para registrar y asignar uno.</p>
-            </div>
-        ) : (
-          patients.map((patient) => (
-            <AccordionItem value={`item-${patient.id}`} key={patient.id}>
-              <AccordionTrigger>
-                <div className="flex justify-between items-center w-full pr-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"><User className="w-6 h-6 text-gray-500" /></div>
-                    <div>
-                      <p className="font-semibold">{patient.name}</p>
-                      <p className="text-sm text-gray-500">{patient.age} años • {patient.diagnosis.join(', ')}</p>
-                    </div>
-                  </div>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="space-y-4 pt-2 pb-4 px-4">
-                  <div className="flex items-center justify-between text-sm">
-                     <p>Email del Tutor: {patient.guardian_email || 'No especificado'}</p>
-                  </div>
-                  <div className="flex space-x-2 pt-2">
-                    <Button size="sm" className="flex-1" onClick={() => setSelectedPatient(patient)}><Activity className="w-4 h-4 mr-1" />Ver Detalles</Button>
-                    <Button size="sm" variant="outline"><Users className="w-4 h-4" /></Button>
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))
+      <div className="space-y-4">
+        {loading && (
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            <Loader2 className="h-4 w-4 animate-spin text-green-600" />
+            <span>Cargando informacion actualizada...</span>
+          </div>
         )}
-      </Accordion>
+
+        {!loading && patients.length === 0 ? (
+          <Card className="border-2 border-dashed border-gray-200 bg-slate-50">
+            <CardHeader className="items-center text-center">
+              <CardTitle className="text-xl font-semibold text-gray-900">No tienes pacientes asignados</CardTitle>
+              <CardDescription className="text-sm text-gray-500">
+                Usa el boton "Nuevo paciente" para registrar y asignar uno.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center pb-8">
+              <Button onClick={() => setShowNewPatientForm(true)} className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Registrar nuevo paciente
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <Table className="w-full min-w-[960px]">
+                <TableHeader className="bg-slate-50">
+                  <TableRow>
+                    <TableHead>Paciente</TableHead>
+                    <TableHead>Perfil</TableHead>
+                    <TableHead>Representación</TableHead>
+                    <TableHead>Contacto</TableHead>
+                    <TableHead>Preferencias registradas</TableHead>
+                    <TableHead className="text-right">Actualización</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {patients.map((patient, index) => {
+                    const preferenceDisplay = buildPreferenceDisplay(patient.preferences);
+                    const preferenceEntries = preferenceDisplay?.entries ?? [];
+                    const entriesToShow = preferenceEntries.slice(0, 3);
+                    const remainingPreferences = Math.max(0, preferenceEntries.length - entriesToShow.length);
+                    const preferenceNote = preferenceDisplay?.note;
+                    const tutorEmail = patient.guardian_email || patient.email;
+                    const tutorPhone = patient.guardian_phone;
+
+                    return (
+                      <TableRow key={patient.id} className="align-top">
+                        <TableCell>
+                          <motion.div
+                            custom={index}
+                            variants={cardVariants}
+                            initial="hidden"
+                            animate="visible"
+                            className="flex items-start gap-3"
+                          >
+                            <div className="mt-1 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-700">
+                              {getInitials(patient.name)}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-gray-900">{patient.name}</span>
+                                <Badge variant="secondary" className="capitalize">
+                                  <Sparkles className="mr-1 h-3.5 w-3.5 text-emerald-500" />
+                                  {formatEmotionLabel(patient.currentEmotion)}
+                                </Badge>
+                              </div>
+                              {patient.diagnosis.length > 0 && (
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  {patient.diagnosis.slice(0, 2).map((item) => (
+                                    <Badge key={item} variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                                      {item}
+                                    </Badge>
+                                  ))}
+                                  {patient.diagnosis.length > 2 && (
+                                    <Badge variant="outline" className="border-dashed border-emerald-200 text-emerald-700">
+                                      +{patient.diagnosis.length - 2}
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <CalendarIcon className="h-4 w-4 text-emerald-500" />
+                              <span>{formatBirthDate(patient.date_of_birth)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">
+                                {patient.age !== undefined ? `${patient.age} años` : 'Edad no registrada'}
+                              </span>
+                              {patient.asd_level && (
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-600">{patient.asd_level}</span>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-emerald-500" />
+                              <span>{patient.guardian_name || 'Tutor no registrado'}</span>
+                            </div>
+                            {patient.address && (
+                              <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <MapPin className="h-3.5 w-3.5 text-emerald-500" />
+                                <span>{patient.address}</span>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-2">
+                              <Mail className="h-4 w-4 text-emerald-500" />
+                              <span className="truncate">{tutorEmail || 'Sin correo'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-4 w-4 text-emerald-500" />
+                              <span>{tutorPhone || 'Sin teléfono'}</span>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-xs text-sm text-gray-600">
+                          {entriesToShow.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {entriesToShow.map((entry) => (
+                                <span
+                                  key={`${patient.id}-${entry.label}`}
+                                  className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                                >
+                                  <span className="font-semibold">{entry.label}:</span> {entry.value}
+                                </span>
+                              ))}
+                              {remainingPreferences > 0 && (
+                                <span className="rounded-full border border-dashed border-emerald-200 px-2 py-1 text-xs text-emerald-600">
+                                  +{remainingPreferences} registro{remainingPreferences === 1 ? '' : 's'} adicional{remainingPreferences === 1 ? '' : 'es'}
+                                </span>
+                              )}
+                            </div>
+                          ) : preferenceNote ? (
+                            <p className="whitespace-pre-line text-xs text-gray-600">{preferenceNote}</p>
+                          ) : (
+                            <span className="text-xs italic text-gray-400">Sin preferencias registradas.</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right text-sm text-gray-500">
+                          <div className="flex items-center justify-end gap-2 text-xs">
+                            <Clock3 className="h-3.5 w-3.5 text-emerald-500" />
+                            <span>{formatUpdatedAt(patient.updatedAt)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" onClick={() => setSelectedPatient(patient)} className="inline-flex items-center gap-1">
+                            <Activity className="h-4 w-4" />
+                            Ver detalles
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, date
 from uuid import UUID
 
@@ -7,6 +7,9 @@ from uuid import UUID
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+PreferencesType = Union[Dict[str, Any], str]
+
 
 class UserRegister(BaseModel):
     name: str
@@ -30,7 +33,7 @@ class UserRegister(BaseModel):
     diagnosis: Optional[List[str]] = None
     guardian_email: Optional[EmailStr] = None
     parent_email: Optional[EmailStr] = None
-    preferences: Optional[Dict[str, Any]] = None
+    preferences: Optional[PreferencesType] = None
 
 class Token(BaseModel):
     access_token: str
@@ -101,7 +104,7 @@ class ChildRegistrationRequest(BaseModel):
     asd_level: Optional[str] = None
     diagnosis: List[str] = Field(default_factory=list)
     clinical_history_file: Optional[str] = None
-    preferences: Dict[str, Any] = Field(default_factory=dict)
+    preferences: Optional[PreferencesType] = Field(default_factory=dict)
 
 class ChildBase(BaseModel):
     name: str
@@ -117,7 +120,7 @@ class ChildBase(BaseModel):
     asd_level: Optional[str] = None
     diagnosis: List[str] = Field(default_factory=list)
     clinical_history_file: Optional[str] = None
-    preferences: Dict[str, Any] = Field(default_factory=dict)
+    preferences: Optional[PreferencesType] = Field(default_factory=dict)
     current_emotion: str = "neutral"
 
 class ChildCreate(ChildBase):

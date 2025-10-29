@@ -31,6 +31,8 @@ import {
   EmotionRecord,
   BiometricAlert,
 } from '@/types';
+import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import type { TooltipProps } from 'recharts';
 
 interface BackendTherapySession {
   id: string;
@@ -117,6 +119,52 @@ const mapAlert = (item: BackendBiometricAlert): BiometricAlert => ({
 const capitalize = (value?: string | null) =>
   value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Sin datos';
 
+const EMOTION_COLORS = [
+  '#22c55e',
+  '#3b82f6',
+  '#f97316',
+  '#a855f7',
+  '#ef4444',
+  '#14b8a6',
+  '#f59e0b',
+  '#0ea5e9',
+];
+
+const STRESS_LABELS: Record<string, string> = {
+  low: 'Bajo',
+  medium: 'Medio',
+  high: 'Alto',
+};
+
+const formatStressLevel = (value?: BiometricData['stressLevel']) => {
+  if (!value) return 'Sin datos';
+  const normalized = value.toString().toLowerCase();
+  return STRESS_LABELS[normalized] ?? capitalize(value);
+};
+
+const formatDominantEmotion = (emotion?: string, confidence?: number) => {
+  const label = emotion ? capitalize(emotion) : 'Sin datos';
+  const confidenceValue = confidence ?? 0;
+  const rounded = Math.round(confidenceValue);
+  return `${label} (${rounded}%)`;
+};
+
+const formatFullDateTime = (timestamp: Date) =>
+  format(timestamp, "d 'de' MMMM yyyy HH:mm", { locale: es });
+
+const EmotionTooltip: React.FC<TooltipProps<number, string>> = ({ active, payload }) => {
+  if (!active || !payload || !payload.length) return null;
+  const data = payload[0];
+  const entry = (data.payload as { name: string; value: number }) ?? { name: '', value: 0 };
+
+  return (
+    <div className="rounded-md border border-gray-200 bg-white px-3 py-2 text-xs shadow-sm">
+      <p className="font-semibold capitalize text-gray-800">{entry.name}</p>
+      <p className="text-gray-500">{entry.value} registro{entry.value === 1 ? '' : 's'}</p>
+    </div>
+  );
+};
+
 interface PatientDetailProps {
   patient: Patient;
   onBack: () => void;
@@ -157,6 +205,7 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
           ),
           api.get<BackendBiometricAlert[]>(`/alerts?child_id=${patient.childProfileId}`),
         ]);
+        console.log(biometricsRes)
 
         if (!active) return;
 
@@ -231,6 +280,21 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
 
   const recentEmotions = emotions.slice(0, 5);
   const recentBiometrics = biometrics.slice(0, 6);
+  const emotionDistributionData = useMemo(() => {
+    if (!emotions.length) return [];
+    const counts = emotions.reduce<Record<string, number>>((acc, record) => {
+      const key = (record.emotion ?? 'sin datos').toLowerCase();
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(counts).map(([name, value], index) => ({
+      name,
+      value,
+      color: EMOTION_COLORS[index % EMOTION_COLORS.length],
+    }));
+  }, [emotions]);
+  const totalEmotionSamples = emotionDistributionData.reduce((acc, item) => acc + item.value, 0);
 
   const averageHeartRate = useMemo(() => {
     const values = biometrics
@@ -240,6 +304,17 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
       ? Math.round(values.reduce((acc, value) => acc + value, 0) / values.length)
       : null;
   }, [biometrics]);
+
+  const latestBiometric = recentBiometrics[0];
+  const summaryHeartRate = latestBiometric?.heartRate ?? averageHeartRate ?? null;
+  const averageFaceCount = recentBiometrics.length
+    ? Math.round(
+        recentBiometrics.reduce(
+          (acc, record) => acc + (record.faceCount ?? 0),
+          0,
+        ) / recentBiometrics.length,
+      )
+    : 0;
 
   const generatePDF = async () => {
     setIsGeneratingPdf(true);
@@ -430,32 +505,52 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {emotions.length ? (
-                    <div className="space-y-3">
-                      {Object.entries(
-                        emotions.reduce<Record<string, number>>((acc, record) => {
-                          const key = record.emotion.toLowerCase();
-                          acc[key] = (acc[key] ?? 0) + 1;
-                          return acc;
-                        }, {}),
-                      )
-                        .sort((a, b) => b[1] - a[1])
-                        .map(([emotion, count]) => (
-                          <div key={emotion} className="flex items-center gap-3">
-                            <div className="flex-1">
-                              <p className="text-sm font-medium capitalize">{emotion}</p>
-                              <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
-                                <div
-                                  className="bg-purple-500 h-2 rounded-full"
-                                  style={{
-                                    width: `${Math.round((count / emotions.length) * 100)}%`,
-                                  }}
-                                />
+                  {emotionDistributionData.length ? (
+                    <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_1fr] md:items-center">
+                      <div className="h-60">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={emotionDistributionData}
+                              dataKey="value"
+                              nameKey="name"
+                              innerRadius={55}
+                              outerRadius={85}
+                              paddingAngle={3}
+                              stroke="#ffffff"
+                              strokeWidth={1}
+                            >
+                              {emotionDistributionData.map((entry) => (
+                                <Cell key={entry.name} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<EmotionTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="space-y-3">
+                        {emotionDistributionData.map((entry) => {
+                          const percentage = totalEmotionSamples
+                            ? Math.round((entry.value / totalEmotionSamples) * 100)
+                            : 0;
+                          return (
+                            <div key={entry.name} className="flex items-center gap-3">
+                              <span
+                                className="h-3 w-3 flex-shrink-0 rounded-full"
+                                style={{ backgroundColor: entry.color }}
+                              />
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold capitalize text-gray-800">
+                                  {entry.name}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {percentage}% · {entry.value} registro{entry.value === 1 ? '' : 's'}
+                                </p>
                               </div>
                             </div>
-                            <span className="text-xs text-gray-600 w-10 text-right">{count}</span>
-                          </div>
-                        ))}
+                          );
+                        })}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm text-gray-500">
@@ -560,58 +655,110 @@ export const PatientDetail: React.FC<PatientDetailProps> = ({ patient, onBack })
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase">Frecuencia cardíaca</p>
-                      <p className="text-2xl font-semibold">
-                        {averageHeartRate !== null ? `${averageHeartRate} BPM` : '--'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase">Mediciones</p>
-                      <p className="text-2xl font-semibold">{biometrics.length}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase">Caras detectadas</p>
-                      <p className="text-2xl font-semibold">
-                        {recentBiometrics.length
-                          ? Math.round(
-                              recentBiometrics.reduce(
-                                (acc, record) => acc + (record.faceCount ?? 0),
-                                0,
-                              ) / recentBiometrics.length,
-                            )
-                          : 0}
-                      </p>
-                    </div>
-                  </div>
-
                   {recentBiometrics.length ? (
-                    <div className="space-y-3">
-                      {recentBiometrics.map((record) => (
-                        <div
-                          key={record.timestamp.getTime()}
-                          className="flex flex-col md:flex-row md:items-center md:justify-between border rounded-lg px-3 py-2"
-                        >
-                          <div>
-                            <p className="text-sm font-medium text-gray-800">
-                              {format(record.timestamp, "PPP p", { locale: es })}
-                            </p>
-                            <p className="text-xs text-gray-600 mt-1">
-                              Emoción dominante:{' '}
-                              <span className="capitalize">
-                                {record.dominantEmotion ?? 'Sin datos'}
-                              </span>{' '}
-                              ({Math.round(record.dominantConfidence ?? 0)}%)
-                            </p>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3">
+                          <p className="text-xs uppercase tracking-wide text-emerald-600">
+                            Frecuencia cardíaca
+                          </p>
+                          <p className="text-2xl font-semibold text-emerald-700">
+                            {summaryHeartRate !== null ? `${summaryHeartRate} BPM` : '--'}
+                          </p>
+                          <p className="text-xs text-emerald-600/80 mt-1">
+                            Última captura registrada
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 px-4 py-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            Mediciones almacenadas
+                          </p>
+                          <p className="text-2xl font-semibold text-slate-900">{biometrics.length}</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Registros disponibles para este paciente
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 px-4 py-3">
+                          <p className="text-xs uppercase tracking-wide text-slate-500">
+                            Caras detectadas
+                          </p>
+                          <p className="text-2xl font-semibold text-slate-900">{averageFaceCount}</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Promedio de las últimas mediciones
+                          </p>
+                        </div>
+                      </div>
+
+                      {latestBiometric && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-4">
+                          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">
+                                Última captura registrada
+                              </p>
+                              <p className="text-sm font-semibold text-slate-900">
+                                {formatFullDateTime(latestBiometric.timestamp)}
+                              </p>
+                            </div>
+                            <Badge variant="secondary" className="capitalize">
+                              {formatDominantEmotion(
+                                latestBiometric.dominantEmotion,
+                                latestBiometric.dominantConfidence,
+                              )}
+                            </Badge>
                           </div>
-                          <div className="flex flex-wrap gap-3 text-xs text-gray-600 mt-2 md:mt-0">
-                            <span>FC: {record.heartRate ?? '--'} BPM</span>
-                            <span>Estrés: {record.stressLevel ?? '--'}</span>
-                            <span>Caras: {record.faceCount ?? 0}</span>
+                          <div className="mt-3 grid gap-3 text-sm text-slate-700 sm:grid-cols-3">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">
+                                Frecuencia cardíaca
+                              </p>
+                              <p className="text-base font-semibold">
+                                {latestBiometric.heartRate ?? '--'} BPM
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">
+                                Estrés estimado
+                              </p>
+                              <p className="text-base font-semibold">
+                                {formatStressLevel(latestBiometric.stressLevel)}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide text-slate-500">
+                                Caras detectadas
+                              </p>
+                              <p className="text-base font-semibold">
+                                {latestBiometric.faceCount ?? 0}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                      ))}
+                      )}
+
+                      <div className="space-y-3">
+                        {recentBiometrics.map((record) => (
+                          <div
+                            key={record.timestamp.getTime()}
+                            className="rounded-lg border border-slate-200 px-4 py-3"
+                          >
+                            <p className="text-sm font-semibold text-slate-800">
+                              {formatFullDateTime(record.timestamp)}
+                            </p>
+                            <p className="text-xs text-slate-600 mt-1">
+                              Emoción dominante:{' '}
+                              <span className="font-semibold text-emerald-600">
+                                {formatDominantEmotion(record.dominantEmotion, record.dominantConfidence)}
+                              </span>
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
+                              <span>FC: {record.heartRate ?? '--'} BPM</span>
+                              <span>Estrés: {formatStressLevel(record.stressLevel)}</span>
+                              <span>Caras: {record.faceCount ?? 0}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-sm text-gray-500">

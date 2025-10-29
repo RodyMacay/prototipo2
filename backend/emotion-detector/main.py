@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import io
+import json
 import torch
 import os
 from datetime import date, datetime, timedelta
@@ -140,6 +141,40 @@ def _compute_biometric_from_emotion(emotion: str, confidence: float) -> Dict[str
         "skin_temperature": skin_temperature,
         "activity": activity_state,
     }
+
+
+def _normalize_preferences_value(value: Any) -> Optional[PreferencesType]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        if stripped.lower() in {"null", "none"}:
+            return None
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        return stripped
+    if isinstance(value, dict):
+        return value
+    return value
+
+
+def _prepare_preferences_for_storage(value: Any) -> Optional[str]:
+    normalized = _normalize_preferences_value(value)
+    if normalized is None:
+        return None
+    if isinstance(normalized, dict):
+        if not normalized:
+            return None
+        return json.dumps(normalized, ensure_ascii=False)
+    if isinstance(normalized, str):
+        return normalized.strip() or None
+    return str(normalized)
 
 
 def _persist_emotion_snapshot(child_id: str, flush_timestamp: Optional[datetime] = None):
@@ -387,7 +422,7 @@ async def register_user(payload: UserRegister):
             "asd_level": payload.asd_level,
             "diagnosis": diagnosis,
             "clinical_history_file": clinical_file,
-            "preferences": payload.preferences or {},
+            "preferences": _prepare_preferences_for_storage(payload.preferences),
             "current_emotion": "neutral",
         }
         try:
@@ -469,7 +504,7 @@ async def create_child_for_psychologist(
         "asd_level": payload.asd_level,
         "diagnosis": diagnosis,
         "clinical_history_file": payload.clinical_history_file,
-        "preferences": payload.preferences or {},
+        "preferences": _prepare_preferences_for_storage(payload.preferences),
         "current_emotion": "neutral",
     }
     created_child = DatabaseService.create_child(child_data)
@@ -549,8 +584,9 @@ async def get_my_children(current_user: dict = Depends(get_current_user)):
         if not normalized_child.get("name"):
             normalized_child["name"] = user_payload.get("name") or normalized_child["email"]
 
-        if normalized_child.get("preferences") is None:
-            normalized_child["preferences"] = {}
+        normalized_child["preferences"] = _normalize_preferences_value(
+            normalized_child.get("preferences")
+        )
 
         normalized_children.append(normalized_child)
 

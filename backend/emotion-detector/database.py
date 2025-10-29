@@ -200,7 +200,29 @@ class DatabaseService:
 
     @staticmethod
     def save_biometric_data(biometric_data: Dict[str, Any]) -> Dict[str, Any]:
-        response = supabase.table('biometric_data').insert(biometric_data).execute()
+        payload: Dict[str, Any] = {
+            "child_id": biometric_data.get("child_id"),
+            "heart_rate": biometric_data.get("heart_rate"),
+            "stress_level": biometric_data.get("stress_level"),
+            "skin_temperature": biometric_data.get("skin_temperature"),
+            "activity": biometric_data.get("activity"),
+            "face_count": biometric_data.get("face_count"),
+            "dominant_emotion": biometric_data.get("dominant_emotion"),
+            "dominant_confidence": biometric_data.get("dominant_confidence"),
+            "microexpression_data": biometric_data.get("microexpression_data") or {},
+        }
+
+        timestamp_value = biometric_data.get("timestamp")
+        if isinstance(timestamp_value, datetime):
+            payload["timestamp"] = timestamp_value.isoformat()
+        elif isinstance(timestamp_value, str):
+            payload["timestamp"] = timestamp_value
+
+        # Supabase expects JSON-serialisable values
+        if not isinstance(payload["microexpression_data"], dict):
+            payload["microexpression_data"] = {}
+
+        response = supabase.table('biometric_data').insert(payload).execute()
         return response.data[0]
 
     @staticmethod
