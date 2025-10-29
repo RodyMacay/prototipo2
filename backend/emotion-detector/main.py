@@ -588,9 +588,19 @@ async def get_my_children(current_user: dict = Depends(get_current_user)):
             normalized_child.get("preferences")
         )
 
-        normalized_children.append(normalized_child)
+    normalized_children.append(normalized_child)
 
     return normalized_children
+
+
+@app.get("/psychologists/dashboard", response_model=PsychologistDashboardSummary)
+async def get_psychologist_dashboard_summary(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "psychologist":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    psychologist = DatabaseService.get_psychologist_by_user_id(current_user["id"])
+    if not psychologist:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Psychologist profile not found")
+    return DatabaseService.get_psychologist_dashboard(psychologist["id"])
 
 
 @app.post("/psychologists/me/children", response_model=Child)

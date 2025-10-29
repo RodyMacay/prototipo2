@@ -242,6 +242,53 @@ export interface BiometricAlert {
   actionTaken?: string;
 }
 
+export interface DashboardEmotionSlice {
+  emotion: string;
+  count: number;
+}
+
+export interface DashboardBiometricSnapshot {
+  childId: string;
+  childName?: string;
+  timestamp: string;
+  heartRate?: number;
+  stressLevel?: string;
+  faceCount?: number;
+  dominantEmotion?: string;
+  dominantConfidence?: number;
+}
+
+export interface DashboardSessionSummary {
+  id: string;
+  childId: string;
+  childName?: string;
+  startTime: string;
+  status: string;
+}
+
+export interface DashboardAlertSummary {
+  id: string;
+  childId: string;
+  childName?: string;
+  type: string;
+  severity: string;
+  message: string;
+  timestamp: string;
+  resolved: boolean;
+}
+
+export interface DashboardSummary {
+  totalPatients: number;
+  sessionsToday: number;
+  unresolvedAlerts: number;
+  averageHeartRate: number | null;
+  stressDistribution: Record<string, number>;
+  emotionDistribution: DashboardEmotionSlice[];
+  recentBiometrics: DashboardBiometricSnapshot[];
+  upcomingSessions: DashboardSessionSummary[];
+  alerts: DashboardAlertSummary[];
+}
+
 // UI State Types
 export interface AppState {
   currentUser: User | null;

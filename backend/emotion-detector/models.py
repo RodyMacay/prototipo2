@@ -201,6 +201,48 @@ class EmotionRecord(EmotionRecordBase):
     id: UUID
     child_id: UUID
     timestamp: datetime
+
+class DashboardBiometricSnapshot(BaseModel):
+    child_id: UUID
+    child_name: Optional[str] = None
+    timestamp: datetime
+    heart_rate: Optional[int] = None
+    stress_level: Optional[str] = None
+    face_count: Optional[int] = None
+    dominant_emotion: Optional[str] = None
+    dominant_confidence: Optional[float] = None
+
+class DashboardSessionSummary(BaseModel):
+    id: UUID
+    child_id: UUID
+    child_name: Optional[str] = None
+    start_time: datetime
+    status: str
+
+class DashboardAlertSummary(BaseModel):
+    id: str
+    child_id: UUID
+    child_name: Optional[str] = None
+    type: str
+    severity: str
+    message: str
+    timestamp: datetime
+    resolved: bool
+
+class EmotionDistributionSlice(BaseModel):
+    emotion: str
+    count: int
+
+class PsychologistDashboardSummary(BaseModel):
+    total_patients: int
+    sessions_today: int
+    unresolved_alerts: int
+    average_heart_rate: Optional[float] = None
+    stress_distribution: Dict[str, int]
+    emotion_distribution: List[EmotionDistributionSlice]
+    recent_biometrics: List[DashboardBiometricSnapshot]
+    upcoming_sessions: List[DashboardSessionSummary]
+    alerts: List[DashboardAlertSummary]
     created_at: datetime
 
     class Config:

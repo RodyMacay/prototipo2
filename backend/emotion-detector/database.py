@@ -131,6 +131,183 @@ class DatabaseService:
         return response.data[0] if response.data else None
 
     @staticmethod
+    def get_psychologist_dashboard(psychologist_id: str) -> Dict[str, Any]:
+        if supabase is None:
+            raise RuntimeError("Supabase client not configured")
+
+        now = datetime.utcnow()
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999).isoformat()
+
+        children_response = (
+            supabase
+            .table('children')
+            .select('id,name,guardian_name,user:users(name)')
+            .eq('assigned_psychologist', psychologist_id)
+            .execute()
+        )
+        child_rows = children_response.data or []
+        child_lookup: Dict[str, Dict[str, Any]] = {}
+        for row in child_rows:
+            child_id = row.get('id')
+            if not child_id:
+                continue
+            user_payload = row.get('user') or {}
+            child_lookup[child_id] = {
+                "name": row.get('name') or user_payload.get('name'),
+                "guardian_name": row.get('guardian_name'),
+            }
+        child_ids = list(child_lookup.keys())
+
+        sessions_today_response = (
+            supabase
+            .table('therapy_sessions')
+            .select('id, child_id, start_time, status')
+            .eq('psychologist_id', psychologist_id)
+            .gte('start_time', start_of_day)
+            .lte('start_time', end_of_day)
+            .execute()
+        )
+        sessions_today_rows = sessions_today_response.data or []
+        sessions_today = len(sessions_today_rows)
+
+        upcoming_sessions_response = (
+            supabase
+            .table('therapy_sessions')
+            .select('id, child_id, start_time, status')
+            .eq('psychologist_id', psychologist_id)
+            .gte('start_time', now.isoformat())
+            .order('start_time', desc=False)
+            .limit(5)
+            .execute()
+        )
+        upcoming_rows = upcoming_sessions_response.data or []
+        upcoming_sessions = [
+            {
+                "id": row.get('id'),
+                "child_id": row.get('child_id'),
+                "child_name": child_lookup.get(row.get('child_id', ''), {}).get('name'),
+                "start_time": row.get('start_time'),
+                "status": row.get('status'),
+            }
+            for row in upcoming_rows
+            if row.get('id') and row.get('child_id')
+        ]
+
+        alerts_rows: List[Dict[str, Any]] = []
+        unresolved_alerts = 0
+        if child_ids:
+            alerts_response = (
+                supabase
+                .table('biometric_alerts')
+                .select('id, child_id, type, severity, message, timestamp, resolved')
+                .in_('child_id', child_ids)
+                .order('timestamp', desc=True)
+                .limit(10)
+                .execute()
+            )
+            alerts_rows = alerts_response.data or []
+            unresolved_alerts = sum(1 for alert in alerts_rows if not alert.get('resolved'))
+
+        alerts = [
+            {
+                "id": row.get('id'),
+                "child_id": row.get('child_id'),
+                "child_name": child_lookup.get(row.get('child_id', ''), {}).get('name'),
+                "type": row.get('type'),
+                "severity": row.get('severity'),
+                "message": row.get('message'),
+                "timestamp": row.get('timestamp'),
+                "resolved": row.get('resolved', False),
+            }
+            for row in alerts_rows
+            if row.get('id') and row.get('child_id')
+        ]
+
+        recent_biometrics: List[Dict[str, Any]] = []
+        latest_by_child: Dict[str, Dict[str, Any]] = {}
+        if child_ids:
+            biometrics_response = (
+                supabase
+                .table('biometric_data')
+                .select('child_id, heart_rate, stress_level, face_count, dominant_emotion, dominant_confidence, timestamp')
+                .in_('child_id', child_ids)
+                .order('timestamp', desc=True)
+                .limit(max(len(child_ids) * 5, 10))
+                .execute()
+            )
+            biometric_rows = biometrics_response.data or []
+            for row in biometric_rows:
+                child_id = row.get('child_id')
+                if not child_id:
+                    continue
+                if child_id not in latest_by_child:
+                    latest_by_child[child_id] = row
+            recent_biometrics = [
+                {
+                    "child_id": row.get('child_id'),
+                    "child_name": child_lookup.get(row.get('child_id', ''), {}).get('name'),
+                    "timestamp": row.get('timestamp'),
+                    "heart_rate": row.get('heart_rate'),
+                    "stress_level": row.get('stress_level'),
+                    "face_count": row.get('face_count'),
+                    "dominant_emotion": row.get('dominant_emotion'),
+                    "dominant_confidence": row.get('dominant_confidence'),
+                }
+                for row in biometric_rows[: min(len(biometric_rows), 6)]
+                if row.get('child_id')
+            ]
+        heart_rates = [
+            row.get('heart_rate')
+            for row in latest_by_child.values()
+            if isinstance(row.get('heart_rate'), (int, float))
+        ]
+        average_heart_rate = round(sum(heart_rates) / len(heart_rates), 2) if heart_rates else None
+
+        stress_distribution: Dict[str, int] = {"low": 0, "medium": 0, "high": 0}
+        for row in latest_by_child.values():
+            level = row.get('stress_level')
+            if isinstance(level, str):
+                normalized = level.lower()
+                if normalized in stress_distribution:
+                    stress_distribution[normalized] += 1
+
+        emotion_counts: Dict[str, int] = {}
+        if child_ids:
+            emotion_response = (
+                supabase
+                .table('emotion_records')
+                .select('emotion')
+                .in_('child_id', child_ids)
+                .order('timestamp', desc=True)
+                .limit(200)
+                .execute()
+            )
+            for row in emotion_response.data or []:
+                emotion = row.get('emotion')
+                if not emotion:
+                    continue
+                key = str(emotion).lower()
+                emotion_counts[key] = emotion_counts.get(key, 0) + 1
+
+        emotion_distribution = [
+            {"emotion": emotion, "count": count}
+            for emotion, count in sorted(emotion_counts.items(), key=lambda item: item[1], reverse=True)
+        ]
+
+        return {
+            "total_patients": len(child_ids),
+            "sessions_today": sessions_today,
+            "unresolved_alerts": unresolved_alerts,
+            "average_heart_rate": average_heart_rate,
+            "stress_distribution": stress_distribution,
+            "emotion_distribution": emotion_distribution,
+            "recent_biometrics": recent_biometrics,
+            "upcoming_sessions": upcoming_sessions,
+            "alerts": alerts,
+        }
+
+    @staticmethod
     def create_psychologist(psychologist_data: Dict[str, Any]) -> Dict[str, Any]:
         response = (
             supabase.table('psychologists')
